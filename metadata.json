@@ -1,0 +1,6 @@
+{
+  "name": "ParsTech — East Mobile Center E-Commerce & Architecture Suite",
+  "description": "Bilingual (Persian RTL / English LTR) Apple-inspired e-commerce storefront, admin panel, and technical specification blueprint for ParsTech (East Mobile Center, Tehran).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

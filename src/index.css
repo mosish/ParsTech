@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-fa: 'Vazirmatn', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-en: 'Plus Jakarta Sans', 'Vazirmatn', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  html[dir="rtl"] body {
+    font-family: var(--font-fa);
+  }
+
+  html[dir="ltr"] body {
+    font-family: var(--font-en);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
