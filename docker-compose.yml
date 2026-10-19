@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:15.19-bookworm
+    container_name: parstech-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-parstech}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-parstech_prod}
+    volumes:
+      - parstech_pgdata:/var/lib/postgresql/data
+    # Security: Do NOT publish PostgreSQL ports to the host or public internet.
+    # PostgreSQL is reachable only on the internal `parstech_internal` Docker bridge.
+    networks:
+      - parstech_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-parstech} -d $${POSTGRES_DB:-parstech_prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: parstech-app:phase1
+    container_name: parstech-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: "0.0.0.0"
+    # Security: Bind application port strictly to 127.0.0.1 so only host Nginx can reach it.
+    # Never mount /var/run/docker.sock.
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - parstech_internal
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  parstech_pgdata:
+    driver: local
+
+networks:
+  parstech_internal:
+    driver: bridge

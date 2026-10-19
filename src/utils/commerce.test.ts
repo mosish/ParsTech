@@ -18,6 +18,7 @@ import {
   calculateProductRatingSummary,
   toggleReviewApproval,
   buildOrderTrackingSteps,
+  getProductColorPhotos,
   type DeliverySettings,
   type Product,
   type ProductReview,
@@ -412,6 +413,24 @@ test('Full mobile catalog includes all iPhone models (13 normal to 17 Pro Max) a
   }
 });
 
-
-
+test('Every color of every product provides at least 4 multi-angle studio photos with official source attribution', () => {
+  const allProducts = [...IPHONE_CATALOG_PRODUCTS, ...SAMSUNG_CATALOG_PRODUCTS, ...SAMPLE_PRODUCTS];
+  for (const product of allProducts) {
+    for (const color of product.colors) {
+      const photos = getProductColorPhotos(product, color.hex);
+      assert.ok(photos.length >= 3, `Expected at least 3 angle photos for ${product.id} (${color.nameEn})`);
+      assert.equal(photos.length, 4);
+      assert.deepEqual(
+        photos.map((p) => p.angle),
+        ['front_back', 'back_camera', 'side_profile', 'angled_studio']
+      );
+      for (const photo of photos) {
+        assert.equal(photo.colorHex, color.hex);
+        assert.equal(photo.colorNameEn, color.nameEn);
+        assert.equal(photo.colorNameFa, color.nameFa);
+        assert.ok(photo.officialSourceDomain.length > 0);
+      }
+    }
+  }
+});
 

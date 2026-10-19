@@ -1,21 +1,21 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Search,
   ShoppingBag,
   SlidersHorizontal,
   Check,
-  ArrowUpLeft,
-  ArrowUpRight,
-  MessageCircle,
-  Send,
-  Instagram,
-  Youtube,
   MapPin,
   Phone,
   Clock,
   Scale,
   Star,
   X,
+  ChevronLeft,
+  ChevronRight,
+  Camera,
 } from 'lucide-react';
 import {
   formatToman,
@@ -23,36 +23,42 @@ import {
   tomanToRial,
   filterAndSortProducts,
   calculateProductRatingSummary,
+  getProductColorPhotos,
+  PRODUCT_ANGLE_METADATA,
   type Language,
   type CategoryId,
   type Product,
+  type ProductAngle,
   type ProductReview,
   type AdminRole,
 } from '../utils/commerce';
 import type { StoreCmsConfig } from '../data/storeData';
+import type { SerializedProductVariant } from '../server/serialization';
 import { ProductArtwork } from './ProductArtwork';
 import { ProductReviewsSection } from './ProductReviewsSection';
 
+type ProductWithOptionalVariants = Product & {
+  variants?: SerializedProductVariant[];
+};
+
 interface StorefrontViewProps {
   lang: Language;
-  products: Product[];
+  products: ProductWithOptionalVariants[];
   cms: StoreCmsConfig;
   selectedCategory: CategoryId;
   onSelectCategory: (cat: CategoryId) => void;
   onAddToCart: (product: Product, colorHex: string) => void;
-  onOpenSpecView: () => void;
   compareIds: string[];
   compareLimitNotice: boolean;
   onToggleCompare: (productId: string) => void;
   onClearCompare: () => void;
   onOpenCompareModal: () => void;
   reviews: ProductReview[];
-  adminRole: AdminRole;
-  isAdminAuthenticated: boolean;
-  onToggleAdminAuth: (authenticated: boolean) => void;
+  adminRole?: AdminRole;
+  isAdminAuthenticated?: boolean;
   onSubmitReview: (review: Omit<ProductReview, 'id' | 'createdAtIso' | 'approved'>) => void;
-  onToggleReviewApproval: (reviewId: string, approved: boolean) => void;
-  onDeleteReview: (reviewId: string) => void;
+  onToggleReviewApproval?: (reviewId: string, approved: boolean) => void;
+  onDeleteReview?: (reviewId: string) => void;
 }
 
 export const StorefrontView: React.FC<StorefrontViewProps> = ({
@@ -62,16 +68,14 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
   selectedCategory,
   onSelectCategory,
   onAddToCart,
-  onOpenSpecView,
   compareIds,
   compareLimitNotice,
   onToggleCompare,
   onClearCompare,
   onOpenCompareModal,
   reviews,
-  adminRole,
-  isAdminAuthenticated,
-  onToggleAdminAuth,
+  adminRole = 'staff',
+  isAdminAuthenticated = false,
   onSubmitReview,
   onToggleReviewApproval,
   onDeleteReview,
@@ -85,7 +89,9 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
   const [sortBy, setSortBy] = useState<'featured' | 'price_asc' | 'price_desc' | 'stock'>('featured');
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [selectedColorHex, setSelectedColorHex] = useState<string>('');
+  const [selectedAngle, setSelectedAngle] = useState<ProductAngle>('front_back');
   const [cardSelectedColors, setCardSelectedColors] = useState<Record<string, string>>({});
+  const [cardSelectedAngles, setCardSelectedAngles] = useState<Record<string, ProductAngle>>({});
   const [addedFeedbackId, setAddedFeedbackId] = useState<string | null>(null);
 
   const baseFilteredProducts = filterAndSortProducts({
@@ -136,7 +142,9 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
   const handleOpenProduct = (product: Product) => {
     setActiveProduct(product);
     const activeCardHex = cardSelectedColors[product.id] ?? product.colors[0]?.hex ?? '#C8C2B8';
+    const activeCardAng = cardSelectedAngles[product.id] ?? 'front_back';
     setSelectedColorHex(activeCardHex);
+    setSelectedAngle(activeCardAng);
   };
 
   const handleQuickAdd = (product: Product, colorHex?: string) => {
@@ -177,55 +185,26 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
                 >
                   {isFa ? 'مشاهده کاتالوگ و قیمت روز' : 'Explore Catalog & Live Prices'}
                 </a>
-                <button
-                  type="button"
-                  onClick={onOpenSpecView}
+                <Link
+                  href="/blueprint"
                   className="px-5 py-3 rounded-xl bg-white hover:bg-[#E8E8ED] text-[#1D1D1F] border border-black/10 text-sm font-medium transition-colors whitespace-nowrap shrink-0"
                 >
-                  {isFa ? 'مشاهده مستندات فنی (بخش a تا g)' : 'Architecture & Spec Blueprint (a–g)'}
-                </button>
+                  {isFa ? 'مستندات معماری و فنی' : 'Architecture & Technical Spec'}
+                </Link>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-xs text-[#6E6E73] pt-2 border-t border-black/[0.06]">
-                <span>{isFa ? 'کد رجیستری رسمی همتا' : 'Official Hamta IMEI Registry'}</span>
+                <span>{isFa ? 'مشخصات فنی کامل' : 'Complete Technical Specs'}</span>
                 <span aria-hidden="true">·</span>
-                <span>{isFa ? 'تحویل ۳ ساعته در تهران' : '3-Hour Tehran Courier'}</span>
+                <span>{isFa ? 'تصاویر ۴ زاویه برای هر رنگ' : '4 Studio Angles per Finish'}</span>
                 <span aria-hidden="true">·</span>
-                <span>{isFa ? 'درگاه امن زرین‌پال و به‌پرداخت ملت' : 'Zarinpal & Mellat Shaparak IPG'}</span>
+                <span>{isFa ? 'ابزار مقایسه ۳ محصولی' : 'Side-by-Side 3-Model Comparison'}</span>
               </div>
             </div>
           </div>
 
           <div className="lg:col-span-6 flex items-center justify-center bg-white rounded-2xl p-6 border border-black/[0.04]">
             <ProductArtwork artworkKey="hero_showcase" className="w-full h-auto max-h-[320px]" />
-          </div>
-        </div>
-
-        {/* Full-width 4-column proof strip below hero split */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mt-6 pt-6 px-2">
-          <div>
-            <p className="text-xs text-[#6E6E73]">{isFa ? 'شعبه حضوری' : 'Physical Showroom'}</p>
-            <p className="text-sm font-semibold text-[#1D1D1F] mt-1">
-              {isFa ? 'مرکز موبایل شرق · واحد B24' : 'East Mobile Center · Unit B24'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-[#6E6E73]">{isFa ? 'ارسال فوری تهران' : 'Tehran Same-Day Courier'}</p>
-            <p className="text-sm font-semibold text-[#1D1D1F] mt-1 tabular-nums">
-              {isFa ? 'زیر ۳ ساعت (رایگان بالای ۲۵ میلیون)' : 'Under 3 Hours (Free > 25M Toman)'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-[#6E6E73]">{isFa ? 'ضمانت اصالت و رجیستری' : 'Authenticity & Warranty'}</p>
-            <p className="text-sm font-semibold text-[#1D1D1F] mt-1">
-              {isFa ? '۱۸ ماه گارانتی شرکتی + کد همتا' : '18-Month Corporate + Hamta Code'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-[#6E6E73]">{isFa ? 'روش‌های تسویه' : 'Payment Options'}</p>
-            <p className="text-sm font-semibold text-[#1D1D1F] mt-1">
-              {isFa ? 'زرین‌پال · ملت · آیدی‌پی · پرداخت در محل' : 'Zarinpal · Mellat · IDPay · In-Store POS'}
-            </p>
           </div>
         </div>
       </section>
@@ -446,6 +425,10 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
               const isJustAdded = addedFeedbackId === product.id;
               const isCompared = compareIds.includes(product.id);
               const activeCardHex = cardSelectedColors[product.id] ?? product.colors[0]?.hex ?? '#C8C2B8';
+              const activeCardAngle = cardSelectedAngles[product.id] ?? 'front_back';
+              const cardAnglePhotos = getProductColorPhotos(product, activeCardHex);
+              const activeCardPhoto =
+                cardAnglePhotos.find((p) => p.angle === activeCardAngle) ?? cardAnglePhotos[0];
               const activeColorObj =
                 product.colors.find((c) => c.hex === activeCardHex) ?? product.colors[0];
 
@@ -455,13 +438,19 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
                   className="group bg-white rounded-2xl border border-black/[0.06] hover:border-black/[0.15] transition-all duration-150 hover:-translate-y-0.5 flex flex-col justify-between overflow-hidden"
                 >
                   <div>
-                    {/* 65-75% Neutral Studio Backdrop Imagery + Top-Corner Compare Toggle */}
-                    <div className="bg-[#F5F5F7] p-6 h-60 flex items-center justify-center relative">
+                    {/* 65-75% Neutral Studio Backdrop Imagery + Top-Corner Compare Toggle + Bottom 4-Angle Switcher */}
+                    <div className="bg-[#F5F5F7] p-5 pb-11 h-64 flex items-center justify-center relative">
+                      <span className="absolute top-3.5 start-3.5 z-10 text-[11px] font-medium text-[#6E6E73] tabular-nums">
+                        {isFa
+                          ? `نمای ${formatNumber(activeCardPhoto.angleIndex, 'fa')}/${formatNumber(cardAnglePhotos.length, 'fa')}`
+                          : `${activeCardPhoto.angleIndex}/${cardAnglePhotos.length} Angles`}
+                      </span>
+
                       <button
                         type="button"
                         aria-pressed={isCompared}
                         onClick={() => onToggleCompare(product.id)}
-                        className={`absolute top-3.5 end-3.5 z-10 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1.5 border ${
+                        className={`absolute top-3 end-3 z-10 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1.5 border ${
                           isCompared
                             ? 'bg-[#1D1D1F] text-white border-[#1D1D1F]'
                             : 'bg-white/90 hover:bg-white text-[#1D1D1F] border-black/10'
@@ -486,8 +475,41 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
                         <ProductArtwork
                           artworkKey={product.artworkKey}
                           accentHex={activeCardHex}
-                          className="w-full h-full max-h-48 transition-transform duration-200 group-hover:scale-[1.03]"
+                          angle={activeCardAngle}
+                          customImageUrl={activeCardPhoto.customImageUrl}
+                          className="w-full h-full max-h-44 transition-transform duration-200 group-hover:scale-[1.03]"
                         />
+                      </div>
+
+                      {/* 4-Angle Quick Switcher Bar on Every Card */}
+                      <div
+                        role="group"
+                        aria-label={isFa ? 'انتخاب زاویه تصویر محصول' : 'Select product photo angle'}
+                        className="absolute bottom-2.5 inset-x-3 flex items-center justify-center gap-1 bg-white/85 backdrop-blur-xs p-1 rounded-xl border border-black/[0.06]"
+                      >
+                        {cardAnglePhotos.map((photo) => {
+                          const isCurrentAngle = photo.angle === activeCardAngle;
+                          return (
+                            <button
+                              key={photo.id}
+                              type="button"
+                              aria-pressed={isCurrentAngle}
+                              onClick={() =>
+                                setCardSelectedAngles((prev) => ({
+                                  ...prev,
+                                  [product.id]: photo.angle,
+                                }))
+                              }
+                              className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-medium transition-colors truncate ${
+                                isCurrentAngle
+                                  ? 'bg-[#1D1D1F] text-white font-semibold'
+                                  : 'text-[#515154] hover:text-[#1D1D1F] hover:bg-black/[0.04]'
+                              }`}
+                            >
+                              {isFa ? photo.shortLabelFa : photo.shortLabelEn}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -633,146 +655,36 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
         )}
       </section>
 
-      {/* Section 3: East Mobile Center Showroom, Social Channels & Direct Contact */}
-      <section className="max-w-[1200px] mx-auto px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 bg-[#F5F5F7] rounded-3xl p-8 lg:p-10 border border-black/[0.05]">
-          <div className="lg:col-span-6 space-y-5">
-            <p className="text-xs font-medium text-[#6E6E73]">
-              {isFa ? 'تحویل حضوری و مشاوره تخصصی در شرق تهران' : 'In-Store Experience & Direct Support'}
-            </p>
-            <h2 className="text-2xl font-bold text-[#1D1D1F]">
-              {isFa ? 'پارس‌تک — مجتمع تجاری مرکز موبایل شرق' : 'ParsTech Showroom — East Mobile Center'}
+      {/* Verified Business Contact Section — Rendered ONLY when verified business details are configured */}
+      {(cms.storeAddressFa || cms.storePhone) && (
+        <section className="max-w-[1200px] mx-auto px-6">
+          <div className="bg-[#F5F5F7] rounded-3xl p-8 border border-black/[0.05] space-y-4">
+            <h2 className="text-xl font-bold text-[#1D1D1F]">
+              {isFa ? 'اطلاعات تماس تاییدشده' : 'Verified Contact Information'}
             </h2>
-            <p className="text-sm text-[#515154] leading-relaxed">
-              {isFa
-                ? 'مشتریان محترم می‌توانند پس از ثبت سفارش آنلاین، گزینه «تحویل حضوری در مرکز موبایل شرق» را انتخاب کرده و دستگاه خود را به همراه انتقال مالکیت آنی همتا و تست سلامت در حضور کارشناس تحویل بگیرند.'
-                : 'Shop online with instant reservation and pick up your device in person at East Mobile Center (Resalat Expressway), including on-the-spot Hamta SIM registry activation and hardware diagnostics.'}
-            </p>
-
-            <div className="space-y-3 pt-2 text-xs text-[#1D1D1F]">
-              <div className="flex items-start gap-2.5">
-                <MapPin className="w-4 h-4 text-[#0066CC] shrink-0 mt-0.5" />
-                <span>{isFa ? cms.storeAddressFa : cms.storeAddressEn}</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <Phone className="w-4 h-4 text-[#0066CC] shrink-0" />
-                <span className="tabular-nums font-medium">{ formatNumber(0, lang).slice(0,0) }{cms.storePhone}</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <Clock className="w-4 h-4 text-[#0066CC] shrink-0" />
-                <span>{isFa ? cms.workingHoursFa : cms.workingHoursEn}</span>
-              </div>
-            </div>
-
-            {/* Direct WhatsApp & Telegram Contact Buttons */}
-            <div className="flex flex-wrap items-center gap-3 pt-3">
-              <a
-                href={`https://wa.me/${cms.whatsappNumber}`}
-                target="_blank"
-                rel="noreferrer"
-                className="px-4 py-2.5 rounded-xl bg-[#1D1D1F] hover:bg-black/80 text-white text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
-              >
-                <MessageCircle className="w-4 h-4" />
-                <span>{isFa ? 'مشاوره خرید در واتس‌اپ' : 'WhatsApp Sales Support'}</span>
-              </a>
-              <a
-                href={cms.telegramUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="px-4 py-2.5 rounded-xl bg-white hover:bg-[#E8E8ED] text-[#1D1D1F] border border-black/10 text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0"
-              >
-                <Send className="w-4 h-4 text-[#0066CC]" />
-                <span>{isFa ? 'کانال قیمت لحظه‌ای تلگرام' : 'Telegram Live Price Channel'}</span>
-              </a>
-            </div>
-          </div>
-
-          {/* Instagram & Social Media Feed Showcase */}
-          <div className="lg:col-span-6 bg-white rounded-2xl p-6 border border-black/[0.05] flex flex-col justify-between space-y-5">
-            <div className="flex items-center justify-between border-b border-black/[0.06] pb-4">
-              <div className="flex items-center gap-2.5">
-                <Instagram className="w-5 h-5 text-[#1D1D1F]" />
-                <div>
-                  <h3 className="text-sm font-bold text-[#1D1D1F]">@parstech.eastmobile</h3>
-                  <p className="text-[11px] text-[#6E6E73]">
-                    {isFa
-                      ? 'آنباکسینگ روزانه، موجودی لحظه‌ای و آموزش رجیستری'
-                      : 'Daily Unboxings, Stock Drops & Hamta Guides'}
-                  </p>
+            <div className="space-y-2.5 text-xs text-[#1D1D1F]">
+              {(cms.storeAddressFa || cms.storeAddressEn) && (
+                <div className="flex items-start gap-2.5">
+                  <MapPin className="w-4 h-4 text-[#0066CC] shrink-0 mt-0.5" />
+                  <span>{isFa ? cms.storeAddressFa : cms.storeAddressEn}</span>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={cms.instagramUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-semibold text-[#0066CC] hover:underline flex items-center gap-1 whitespace-nowrap"
-                >
-                  <span>{isFa ? 'مشاهده اینستاگرام' : 'Follow'}</span>
-                  {isFa ? <ArrowUpLeft className="w-3.5 h-3.5" /> : <ArrowUpRight className="w-3.5 h-3.5" />}
-                </a>
-              </div>
-            </div>
-
-            {cms.showInstagramWidget ? (
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  {
-                    key: 'iphone16pro' as const,
-                    captionFa: 'موجودی جدید آیفون ۱۶ پرو ZAA با گارانتی شرکتی',
-                    captionEn: 'New iPhone 16 Pro ZAA Dual-SIM Drop',
-                  },
-                  {
-                    key: 'macbookprom4' as const,
-                    captionFa: 'بررسی تخصصی مک‌بوک پرو M4 در شعبه شرق',
-                    captionEn: 'MacBook Pro M4 Pro Benchmark Review',
-                  },
-                  {
-                    key: 'ps5pro' as const,
-                    captionFa: 'پلی‌استیشن ۵ پرو اروپا آماده تحویل فوری',
-                    captionEn: 'PS5 Pro 2TB Europe Pack In Stock',
-                  },
-                ].map((post, idx) => (
-                  <a
-                    key={idx}
-                    href={cms.instagramUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="group block bg-[#F5F5F7] rounded-xl p-3 border border-black/[0.04] hover:border-black/15 transition-colors"
-                  >
-                    <div className="h-24 flex items-center justify-center">
-                      <ProductArtwork artworkKey={post.key} className="w-full h-full" />
-                    </div>
-                    <p className="text-[11px] text-[#515154] mt-2 line-clamp-2 leading-relaxed">
-                      {isFa ? post.captionFa : post.captionEn}
-                    </p>
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-[#6E6E73] py-8 text-center">
-                {isFa ? 'ویجت اینستاگرام توسط مدیر غیرفعال شده است.' : 'Instagram feed widget is currently hidden by Admin.'}
-              </p>
-            )}
-
-            <div className="flex items-center justify-between text-xs text-[#6E6E73] pt-2 border-t border-black/[0.05]">
-              <span>{isFa ? 'شبکه‌های اجتماعی رسمی پارس‌تک:' : 'Official Social Channels:'}</span>
-              <div className="flex items-center gap-4">
-                <a href={cms.instagramUrl} target="_blank" rel="noreferrer" className="hover:text-[#1D1D1F]">
-                  Instagram
-                </a>
-                <a href={cms.telegramUrl} target="_blank" rel="noreferrer" className="hover:text-[#1D1D1F]">
-                  Telegram
-                </a>
-                <a href={cms.youtubeUrl} target="_blank" rel="noreferrer" className="hover:text-[#1D1D1F] flex items-center gap-1">
-                  <Youtube className="w-3.5 h-3.5" />
-                  <span>YouTube</span>
-                </a>
-              </div>
+              )}
+              {cms.storePhone && (
+                <div className="flex items-center gap-2.5">
+                  <Phone className="w-4 h-4 text-[#0066CC] shrink-0" />
+                  <span className="tabular-nums font-medium">{cms.storePhone}</span>
+                </div>
+              )}
+              {(cms.workingHoursFa || cms.workingHoursEn) && (
+                <div className="flex items-center gap-2.5">
+                  <Clock className="w-4 h-4 text-[#0066CC] shrink-0" />
+                  <span>{isFa ? cms.workingHoursFa : cms.workingHoursEn}</span>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Contiguous Product Detail Modal (PDP) */}
       {activeProduct && (
@@ -804,19 +716,136 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-8 pt-6 items-start">
-              {/* Left/Start: Studio Gallery & Color Swatches */}
+              {/* Left/Start: Multi-Angle Studio Gallery (4 Angles per Color) & Color Swatches */}
               <div className="md:col-span-6 space-y-4">
-                <div className="bg-[#F5F5F7] rounded-2xl p-8 h-72 flex items-center justify-center">
-                  <ProductArtwork
-                    artworkKey={activeProduct.artworkKey}
-                    accentHex={selectedColorHex}
-                    className="w-full h-full max-h-56"
-                  />
-                </div>
+                {(() => {
+                  const pdpPhotos = getProductColorPhotos(activeProduct, selectedColorHex);
+                  const activePdpPhoto =
+                    pdpPhotos.find((p) => p.angle === selectedAngle) ?? pdpPhotos[0];
+                  const currentIdx = pdpPhotos.findIndex((p) => p.angle === activePdpPhoto.angle);
+                  const handlePrevAngle = () => {
+                    const prevIdx = (currentIdx - 1 + pdpPhotos.length) % pdpPhotos.length;
+                    setSelectedAngle(pdpPhotos[prevIdx].angle);
+                  };
+                  const handleNextAngle = () => {
+                    const nextIdx = (currentIdx + 1) % pdpPhotos.length;
+                    setSelectedAngle(pdpPhotos[nextIdx].angle);
+                  };
 
-                <div className="space-y-2">
+                  return (
+                    <>
+                      {/* Main Multi-Angle Studio Stage */}
+                      <div className="bg-[#F5F5F7] rounded-2xl p-6 h-72 flex flex-col justify-between relative border border-black/[0.04]">
+                        <div className="flex items-center justify-between text-[11px] text-[#6E6E73] z-10">
+                          <span className="inline-flex items-center gap-1.5 font-medium text-[#1D1D1F]">
+                            <Camera className="w-3.5 h-3.5 text-[#0066CC]" />
+                            <span>{isFa ? activePdpPhoto.titleFa : activePdpPhoto.titleEn}</span>
+                          </span>
+                          <a
+                            href={activePdpPhoto.officialReferenceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[#0066CC] hover:underline font-medium"
+                          >
+                            {activePdpPhoto.officialSourceDomain}
+                          </a>
+                        </div>
+
+                        <div className="flex-1 flex items-center justify-center relative my-1">
+                          <button
+                            type="button"
+                            onClick={handlePrevAngle}
+                            aria-label={isFa ? 'زاویه قبلی' : 'Previous angle'}
+                            className="p-2 rounded-full bg-white/90 hover:bg-white text-[#1D1D1F] border border-black/10 shadow-xs transition-colors"
+                          >
+                            {isFa ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                          </button>
+
+                          <div className="flex-1 h-48 flex items-center justify-center px-2">
+                            <ProductArtwork
+                              artworkKey={activeProduct.artworkKey}
+                              accentHex={selectedColorHex}
+                              angle={activePdpPhoto.angle}
+                              customImageUrl={activePdpPhoto.customImageUrl}
+                              className="w-full h-full max-h-48"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleNextAngle}
+                            aria-label={isFa ? 'زاویه بعدی' : 'Next angle'}
+                            className="p-2 rounded-full bg-white/90 hover:bg-white text-[#1D1D1F] border border-black/10 shadow-xs transition-colors"
+                          >
+                            {isFa ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          </button>
+                        </div>
+
+                        <p className="text-[11px] text-[#6E6E73] text-center truncate">
+                          {isFa ? activePdpPhoto.captionFa : activePdpPhoto.captionEn}
+                        </p>
+                      </div>
+
+                      {/* 4-Angle Thumbnail Strip for the Selected Color */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs text-[#6E6E73]">
+                          <span>
+                            {isFa
+                              ? `تصاویر زوایای مختلف این رنگ (${formatNumber(pdpPhotos.length, 'fa')} زاویه استودیویی):`
+                              : `Multi-Angle Studio Photos for This Finish (${pdpPhotos.length} Angles):`}
+                          </span>
+                          <span className="font-medium text-[#1D1D1F]">
+                            {isFa ? activePdpPhoto.colorNameFa : activePdpPhoto.colorNameEn}
+                          </span>
+                        </div>
+
+                        <div
+                          role="group"
+                          aria-label={isFa ? 'زوایای مختلف محصول' : 'Product angle thumbnails'}
+                          className="grid grid-cols-4 gap-2.5"
+                        >
+                          {pdpPhotos.map((photo) => {
+                            const isSelectedAng = photo.angle === activePdpPhoto.angle;
+                            return (
+                              <button
+                                key={photo.id}
+                                type="button"
+                                aria-pressed={isSelectedAng}
+                                onClick={() => setSelectedAngle(photo.angle)}
+                                className={`p-2 rounded-xl border transition-all flex flex-col items-center gap-1.5 ${
+                                  isSelectedAng
+                                    ? 'bg-[#0066CC]/5 border-[#0066CC] ring-1 ring-[#0066CC]'
+                                    : 'bg-[#F5F5F7] border-black/[0.06] hover:border-black/20'
+                                }`}
+                              >
+                                <div className="h-12 w-full flex items-center justify-center">
+                                  <ProductArtwork
+                                    artworkKey={activeProduct.artworkKey}
+                                    accentHex={selectedColorHex}
+                                    angle={photo.angle}
+                                    customImageUrl={photo.customImageUrl}
+                                    className="w-full h-full"
+                                  />
+                                </div>
+                                <span className="text-[10px] font-semibold text-[#1D1D1F] truncate w-full text-center">
+                                  {isFa
+                                    ? `${formatNumber(photo.angleIndex, 'fa')}. ${photo.shortLabelFa}`
+                                    : `${photo.angleIndex}. ${photo.shortLabelEn}`}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+
+                <div className="space-y-2 pt-1">
                   <p className="text-xs font-medium text-[#6E6E73]">
-                    {isFa ? 'انتخاب رنگ بدنه:' : 'Select Finish:'}
+                    {isFa
+                      ? `انتخاب رنگ بدنه (${formatNumber(activeProduct.colors.length, 'fa')} رنگ اصلی با ۴ زاویه مجزا):`
+                      : `Select Finish (${activeProduct.colors.length} Colors × ${PRODUCT_ANGLE_METADATA.length} Angles):`}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     {activeProduct.colors.map((c) => {
@@ -938,7 +967,6 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
               reviews={reviews}
               adminRole={adminRole}
               isAdminAuthenticated={isAdminAuthenticated}
-              onToggleAdminAuth={onToggleAdminAuth}
               onSubmitReview={onSubmitReview}
               onToggleReviewApproval={onToggleReviewApproval}
               onDeleteReview={onDeleteReview}

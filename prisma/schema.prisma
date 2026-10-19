@@ -1,0 +1,151 @@
+// ParsTech Phase 1 — PostgreSQL Schema
+// Monetary Unit Convention:
+// All monetary fields (*Toman) are stored as 64-bit signed integers (BigInt)
+// representing whole Iranian Tomans (IRT), where 1 Toman = 10 Iranian Rials (IRR).
+// Check constraints in migration SQL enforce nonnegative monetary amounts and stock counts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AdminRole {
+  OWNER
+  STAFF
+}
+
+model AdminUser {
+  id                String         @id @default(cuid())
+  email             String         @unique
+  fullName          String
+  passwordHash      String
+  role              AdminRole      @default(STAFF)
+  isActive          Boolean        @default(true)
+  passwordChangedAt DateTime       @default(now())
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  sessions          AdminSession[]
+  auditLogs         AuditLog[]
+
+  @@index([email])
+}
+
+model AdminSession {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  csrfToken String
+  userId    String
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model LoginRateLimit {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  attempts    Int       @default(0)
+  windowStart DateTime  @default(now())
+  blockedUntil DateTime?
+  expiresAt   DateTime
+  updatedAt   DateTime  @updatedAt
+
+  @@index([expiresAt])
+}
+
+model Category {
+  id            String    @id @default(cuid())
+  slug          String    @unique
+  nameFa        String
+  nameEn        String
+  descriptionFa String?
+  descriptionEn String?
+  sortOrder     Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  products      Product[]
+
+  @@index([slug])
+}
+
+model Product {
+  id                 String           @id @default(cuid())
+  sku                String           @unique
+  slug               String           @unique
+  categoryId         String
+  category           Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brand              String
+  nameFa             String
+  nameEn             String
+  subtitleFa         String
+  subtitleEn         String
+  warrantyFa         String
+  warrantyEn         String
+  artworkKey         String
+  seriesTag          String?
+  featured           Boolean          @default(false)
+  isHeavyItem        Boolean          @default(false)
+  /// Stored in whole Iranian Tomans (1 Toman = 10 IRR). Must be >= 0.
+  basePriceToman     BigInt
+  /// Optional strikethrough price in whole Iranian Tomans (1 Toman = 10 IRR).
+  originalPriceToman BigInt?
+  specsJson          Json             @default("[]")
+  /// Explicitly separates demo/seed items from verified production inventory
+  isDemo             Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  variants           ProductVariant[]
+
+  @@index([categoryId])
+  @@index([brand])
+  @@index([isDemo])
+}
+
+model ProductVariant {
+  id            String   @id @default(cuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku           String   @unique
+  colorNameFa   String
+  colorNameEn   String
+  colorHex      String
+  storageLabel  String   @default("Standard")
+  /// Variant price in whole Iranian Tomans (1 Toman = 10 IRR). Must be >= 0.
+  priceToman    BigInt
+  /// Available physical stock units for this color/storage variant. Must be >= 0.
+  stockCount    Int      @default(0)
+  angleUrlsJson Json     @default("[]")
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([productId, colorHex, storageLabel])
+  @@index([productId])
+}
+
+model AuditLog {
+  id           String     @id @default(cuid())
+  actorId      String?
+  actor        AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail   String?
+  actorRole    String?
+  action       String
+  targetType   String
+  targetId     String?
+  ipAddress    String?
+  metadataJson Json?
+  createdAt    DateTime   @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}

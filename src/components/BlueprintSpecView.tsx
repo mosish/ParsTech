@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Copy, Check, Database, Layers, GitBranch, Layout, Palette, Calendar, ShieldAlert } from 'lucide-react';
 import { SPEC_SECTIONS, POSTGRES_SCHEMA_SQL } from '../data/specDeliverables';

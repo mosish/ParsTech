@@ -12,6 +12,15 @@ export interface ProductSpec {
   valueEn: string;
 }
 
+export type ProductAngle = 'front_back' | 'back_camera' | 'side_profile' | 'angled_studio';
+
+export interface ProductColorOption {
+  nameFa: string;
+  nameEn: string;
+  hex: string;
+  angleUrls?: string[];
+}
+
 export interface Product {
   id: string;
   sku: string;
@@ -26,7 +35,7 @@ export interface Product {
   stockCount: number;
   warrantyFa: string;
   warrantyEn: string;
-  colors: { nameFa: string; nameEn: string; hex: string }[];
+  colors: ProductColorOption[];
   artworkKey:
     | 'iphone16pro'
     | 'iphone_dual'
@@ -700,5 +709,121 @@ export function buildOrderTrackingSteps(status: OrderStatus): OrderTrackingOverv
     steps,
   };
 }
+
+export interface ProductAnglePhoto {
+  id: string;
+  angle: ProductAngle;
+  angleIndex: number;
+  shortLabelFa: string;
+  shortLabelEn: string;
+  titleFa: string;
+  titleEn: string;
+  captionFa: string;
+  captionEn: string;
+  colorHex: string;
+  colorNameFa: string;
+  colorNameEn: string;
+  artworkKey: Product['artworkKey'];
+  officialSourceDomain: string;
+  officialReferenceUrl: string;
+  customImageUrl?: string;
+}
+
+export const PRODUCT_ANGLE_METADATA: {
+  angle: ProductAngle;
+  angleIndex: number;
+  shortLabelFa: string;
+  shortLabelEn: string;
+  descFa: string;
+  descEn: string;
+}[] = [
+  {
+    angle: 'front_back',
+    angleIndex: 1,
+    shortLabelFa: 'روبرو و پشت',
+    shortLabelEn: 'Front & Back',
+    descFa: 'نمای روبرو (نمایشگر روشن) و قاب پشتی استودیویی',
+    descEn: 'Studio Front Display & Rear Chassis Pair',
+  },
+  {
+    angle: 'back_camera',
+    angleIndex: 2,
+    shortLabelFa: 'پشت و دوربین',
+    shortLabelEn: 'Rear & Camera',
+    descFa: 'نمای پشت کامل و بزرگ‌نمایی ماژول دوربین و بافت رنگ',
+    descEn: 'Full Rear Finish & Macro Camera Array Detail',
+  },
+  {
+    angle: 'side_profile',
+    angleIndex: 3,
+    shortLabelFa: 'نیم‌رخ و فریم',
+    shortLabelEn: 'Side Profile',
+    descFa: 'نمای نیم‌رخ، ضخامت فریم، دکمه‌ها و درگاه ارتباطی',
+    descEn: 'Side Rail Profile, Buttons & Port Elevation',
+  },
+  {
+    angle: 'angled_studio',
+    angleIndex: 4,
+    shortLabelFa: 'سه‌رخ استودیو',
+    shortLabelEn: '3/4 Perspective',
+    descFa: 'نمای سه‌بعدی مورب استودیویی با بازتاب نور رنگ بدنه',
+    descEn: '3/4 Isometric Studio Perspective & Finish Highlight',
+  },
+];
+
+/**
+ * Returns at least 4 multi-angle photos ('front_back', 'back_camera', 'side_profile', 'angled_studio')
+ * for the specified color of a product, including official brand reference metadata.
+ */
+export function getProductColorPhotos(
+  product: Product,
+  selectedColorHex?: string
+): ProductAnglePhoto[] {
+  const colorObj =
+    product.colors.find((c) => c.hex.toLowerCase() === (selectedColorHex ?? '').toLowerCase()) ??
+    product.colors[0] ?? {
+      nameFa: 'پیش‌فرض',
+      nameEn: 'Default',
+      hex: '#C8C2B8',
+    };
+
+  const brandSourceMap: Record<
+    Product['brand'],
+    { domain: string; url: string }
+  > = {
+    Apple: { domain: 'apple.com', url: 'https://www.apple.com/iphone/' },
+    Samsung: { domain: 'samsung.com', url: 'https://www.samsung.com/us/smartphones/' },
+    Sony: { domain: 'playstation.com', url: 'https://www.playstation.com/en-us/ps5/' },
+    Microsoft: { domain: 'xbox.com', url: 'https://www.xbox.com/en-US/consoles' },
+    ASUS: { domain: 'rog.asus.com', url: 'https://rog.asus.com/laptops/' },
+    Xiaomi: { domain: 'mi.com', url: 'https://www.mi.com/global/' },
+    Anker: { domain: 'anker.com', url: 'https://www.anker.com/' },
+  };
+
+  const sourceInfo = brandSourceMap[product.brand] ?? {
+    domain: 'apple.com',
+    url: 'https://www.apple.com/',
+  };
+
+  return PRODUCT_ANGLE_METADATA.map((meta, idx) => ({
+    id: `${product.id}-${colorObj.hex}-${meta.angle}`,
+    angle: meta.angle,
+    angleIndex: meta.angleIndex,
+    shortLabelFa: meta.shortLabelFa,
+    shortLabelEn: meta.shortLabelEn,
+    titleFa: `زاویه ${toPersianDigits(meta.angleIndex)} (${meta.shortLabelFa}) — رنگ ${colorObj.nameFa}`,
+    titleEn: `Angle ${meta.angleIndex} (${meta.shortLabelEn}) — ${colorObj.nameEn}`,
+    captionFa: `${meta.descFa} · رنگ ${colorObj.nameFa}`,
+    captionEn: `${meta.descEn} · ${colorObj.nameEn}`,
+    colorHex: colorObj.hex,
+    colorNameFa: colorObj.nameFa,
+    colorNameEn: colorObj.nameEn,
+    artworkKey: product.artworkKey,
+    officialSourceDomain: sourceInfo.domain,
+    officialReferenceUrl: sourceInfo.url,
+    customImageUrl: colorObj.angleUrls?.[idx],
+  }));
+}
+
 
 

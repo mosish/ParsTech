@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -7,15 +9,13 @@ import {
   ShieldCheck,
   Truck,
   Store,
-  CreditCard,
-  CheckCircle2,
+  AlertCircle,
   ArrowRight,
   ArrowLeft,
 } from 'lucide-react';
 import {
   formatToman,
   formatNumber,
-  formatJalaliDate,
   calculateOrderTotals,
   validateCheckoutForm,
   type Language,
@@ -23,10 +23,8 @@ import {
   type Product,
   type DeliverySettings,
   type DeliveryMethodId,
-  type PaymentGatewayId,
   type CheckoutFormInput,
 } from '../utils/commerce';
-import type { GatewayConfig, OrderRecord } from '../data/storeData';
 
 interface CartCheckoutModalProps {
   isOpen: boolean;
@@ -35,12 +33,10 @@ interface CartCheckoutModalProps {
   cart: CartItem[];
   products: Product[];
   deliverySettings: DeliverySettings;
-  gateways: GatewayConfig[];
   activeDiscountCode: string;
   activeDiscountPercent: number;
   onUpdateQuantity: (productId: string, delta: number) => void;
   onRemoveItem: (productId: string) => void;
-  onCompleteOrder: (order: OrderRecord) => void;
 }
 
 export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
@@ -50,33 +46,30 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
   cart,
   products,
   deliverySettings,
-  gateways,
   activeDiscountCode,
   activeDiscountPercent,
   onUpdateQuantity,
   onRemoveItem,
-  onCompleteOrder,
 }) => {
   const isFa = lang === 'fa';
-  const [step, setStep] = useState<'cart' | 'shipping' | 'payment' | 'receipt'>('cart');
+  const [step, setStep] = useState<'cart' | 'shipping' | 'payment'>('cart');
   const [couponInput, setCouponInput] = useState('');
   const [appliedDiscountPercent, setAppliedDiscountPercent] = useState(0);
   const [couponMessage, setCouponMessage] = useState<string | null>(null);
 
   const [form, setForm] = useState<CheckoutFormInput>({
-    fullName: 'سارا محمدی',
-    mobile: '09123456789',
+    fullName: '',
+    mobile: '',
     province: 'Tehran',
-    city: 'تهران',
-    address: 'بزرگراه رسالت، خیابان آیت شمالی، کوچه بهار، پلاک ۱۸، واحد ۴',
-    postalCode: '1651789431',
+    city: '',
+    address: '',
+    postalCode: '',
     deliveryMethod: 'tehran_peyk',
     paymentGateway: 'zarinpal',
     notes: '',
   });
 
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof CheckoutFormInput, string>>>({});
-  const [confirmedOrder, setConfirmedOrder] = useState<OrderRecord | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -110,7 +103,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
       );
     } else {
       setAppliedDiscountPercent(0);
-      setCouponMessage(isFa ? 'کد تخفیف نامعتبر است. (کد نمونه: PARS5)' : 'Invalid code. Try PARS5.');
+      setCouponMessage(isFa ? 'کد تخفیف نامعتبر است.' : 'Invalid discount code.');
     }
   };
 
@@ -122,67 +115,11 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
     }
   };
 
-  const handleFinalizeOrder = () => {
-    const todayIso = '2026-10-19';
-    const randNum = Math.floor(1000 + Math.random() * 8999);
-    const newOrder: OrderRecord = {
-      id: `ord-${randNum}`,
-      orderNumber: `PT-1405-${randNum}`,
-      createdAtIso: todayIso,
-      customerName: form.fullName,
-      customerMobile: form.mobile,
-      province: form.deliveryMethod === 'pickup' ? 'Tehran' : form.province,
-      city: form.deliveryMethod === 'pickup' ? 'تهران (شعبه مرکز موبایل شرق)' : form.city,
-      address:
-        form.deliveryMethod === 'pickup'
-          ? 'تحویل حضوری در مرکز موبایل شرق، طبقه همکف، واحد B24'
-          : form.address,
-      postalCode: form.deliveryMethod === 'pickup' ? '1651700000' : form.postalCode,
-      deliveryMethod: form.deliveryMethod,
-      paymentGateway: form.paymentGateway,
-      paymentRefId:
-        form.paymentGateway === 'cod'
-          ? `POS-PENDING-${randNum}`
-          : `${form.paymentGateway.toUpperCase()}-${Math.floor(100000000 + Math.random() * 900000000)}`,
-      trackingCode:
-        form.deliveryMethod === 'pickup'
-          ? `PICKUP-B24-${randNum}`
-          : form.deliveryMethod === 'tehran_peyk'
-            ? `PEYK-TEH-${randNum}`
-            : `POST-IR-${randNum}991`,
-      status: form.paymentGateway === 'cod' ? 'processing' : 'processing',
-      subtotalToman: totals.subtotalToman,
-      discountToman: totals.discountToman,
-      shippingToman: totals.shippingToman,
-      payableToman: totals.payableToman,
-      items: cart
-        .map((c) => {
-          const prod = products.find((p) => p.id === c.productId);
-          if (!prod) return null;
-          const colorObj = prod.colors.find((col) => col.hex === c.selectedColorHex) ?? prod.colors[0];
-          return {
-            productId: prod.id,
-            nameFa: prod.nameFa,
-            nameEn: prod.nameEn,
-            quantity: c.quantity,
-            unitPriceToman: prod.priceToman,
-            colorNameFa: colorObj?.nameFa ?? 'استاندارد',
-            colorNameEn: colorObj?.nameEn ?? 'Standard',
-          };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null),
-    };
-
-    setConfirmedOrder(newOrder);
-    onCompleteOrder(newOrder);
-    setStep('receipt');
-  };
-
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={isFa ? 'سبد خرید و تسویه حساب' : 'Shopping Bag & Checkout'}
+      aria-label={isFa ? 'سبد خرید و محاسبه هزینه' : 'Shopping Bag & Estimate'}
       onClick={() => {
         setStep('cart');
         onClose();
@@ -199,8 +136,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
             <h2 className="text-lg font-bold text-[#1D1D1F]">
               {step === 'cart' && (isFa ? 'سبد خرید شما در پارس‌تک' : 'Your ParsTech Shopping Bag')}
               {step === 'shipping' && (isFa ? 'مرحله ۱ از ۲: مشخصات گیرنده و نحوه ارسال' : 'Step 1 of 2: Delivery & Recipient')}
-              {step === 'payment' && (isFa ? 'مرحله ۲ از ۲: انتخاب درگاه پرداخت شاپرک' : 'Step 2 of 2: Iranian Payment Gateway')}
-              {step === 'receipt' && (isFa ? 'تأیید نهایی سفارش و رسید شاپرک' : 'Order Confirmed & Official Receipt')}
+              {step === 'payment' && (isFa ? 'مرحله ۲ از ۲: وضعیت پرداخت آنلاین' : 'Step 2 of 2: Online Payment Status')}
             </h2>
             <button
               type="button"
@@ -216,12 +152,11 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
           </div>
 
           {/* Stepper Bar */}
-          <div className="grid grid-cols-4 gap-2 text-[11px] font-medium">
+          <div className="grid grid-cols-3 gap-2 text-[11px] font-medium">
             {[
               { id: 'cart', labelFa: '۱. سبد خرید', labelEn: '1. Bag' },
               { id: 'shipping', labelFa: '۲. ارسال', labelEn: '2. Delivery' },
               { id: 'payment', labelFa: '۳. پرداخت', labelEn: '3. Payment' },
-              { id: 'receipt', labelFa: '۴. فاکتور', labelEn: '4. Receipt' },
             ].map((s) => {
               const isCurrent = step === s.id;
               return (
@@ -251,8 +186,8 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                   </p>
                   <p className="text-xs text-[#6E6E73]">
                     {isFa
-                      ? 'از کاتالوگ محصولات، گوشی، لپ‌تاپ یا کنسول مورد نظر خود را به سبد اضافه کنید.'
-                      : 'Add an iPhone, MacBook, or PlayStation from the catalog to begin checkout.'}
+                      ? 'از کاتالوگ محصولات، دستگاه مورد نظر خود را به سبد اضافه کنید.'
+                      : 'Add hardware from the catalog to calculate totals.'}
                   </p>
                 </div>
               ) : (
@@ -314,7 +249,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                   {/* Discount Code Input */}
                   <div className="p-4 rounded-2xl bg-[#F5F5F7] space-y-2">
                     <label htmlFor="coupon-code-input" className="block text-xs font-medium text-[#1D1D1F]">
-                      {isFa ? 'کد تخفیف (کد نمونه: PARS5)' : 'Promo / Discount Code (Try: PARS5)'}
+                      {isFa ? 'کد تخفیف' : 'Discount Code'}
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -322,7 +257,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                         type="text"
                         value={couponInput}
                         onChange={(e) => setCouponInput(e.target.value)}
-                        placeholder="PARS5"
+                        placeholder={isFa ? 'کد تخفیف را وارد کنید' : 'Enter code'}
                         className="flex-1 px-3 py-2 rounded-xl bg-white border border-black/10 text-xs uppercase"
                       />
                       <button
@@ -342,7 +277,6 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
 
           {step === 'shipping' && (
             <div className="space-y-6">
-              {/* Delivery Method Selector with Live Cost Calculation */}
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-[#1D1D1F]">
                   {isFa ? 'انتخاب روش تحویل سفارش:' : 'Select Delivery Method:'}
@@ -353,28 +287,28 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                       id: 'pickup' as DeliveryMethodId,
                       enabled: deliverySettings.enableInStorePickup,
                       icon: Store,
-                      titleFa: 'تحویل حضوری در شعبه مرکز موبایل شرق تهران (واحد B24)',
-                      titleEn: 'In-Store Pickup at East Mobile Center (Tehran, Unit B24)',
-                      descFa: 'آماده تحویل ۱ ساعته · تست فیزیکی و فعال‌سازی رایگان کد همتا در حضور شما',
-                      descEn: 'Ready in 1 hour · Free on-site Hamta IMEI activation · Free (0 Toman)',
+                      titleFa: 'تحویل حضوری',
+                      titleEn: 'In-Store Pickup',
+                      descFa: 'بدون هزینه ارسال (۰ تومان)',
+                      descEn: 'Free pickup (0 Toman)',
                     },
                     {
                       id: 'tehran_peyk' as DeliveryMethodId,
                       enabled: deliverySettings.enableTehranPeyk,
                       icon: Truck,
-                      titleFa: 'پیک اختصاصی ۳ ساعته در شهر تهران',
-                      titleEn: 'Same-Day Express Courier (Tehran Only — Under 3 Hours)',
-                      descFa: `هزینه پایه ${formatToman(deliverySettings.tehranPeykBaseToman, lang)} · رایگان برای خرید بالای ۲۵ میلیون تومان`,
-                      descEn: `Base ${formatToman(deliverySettings.tehranPeykBaseToman, lang)} · Free over 25M Toman`,
+                      titleFa: 'پیک در شهر تهران',
+                      titleEn: 'Tehran Courier Delivery',
+                      descFa: `هزینه پایه ${formatToman(deliverySettings.tehranPeykBaseToman, lang)}`,
+                      descEn: `Base ${formatToman(deliverySettings.tehranPeykBaseToman, lang)}`,
                     },
                     {
                       id: 'iran_post' as DeliveryMethodId,
                       enabled: deliverySettings.enableIranPost,
                       icon: ShieldCheck,
-                      titleFa: 'ارسال بیمه‌شده پست پیشتاز / تیپاکس به سراسر ایران',
-                      titleEn: 'Insured Nationwide Shipping (Pishtaz Post / Tipax across Iran)',
-                      descFa: `بیمه کامل سرقت و شکستگی · تحویل ۲۴ تا ۷۲ ساعته به تمام شهرها`,
-                      descEn: `Full transit insurance · 24–72h nationwide delivery`,
+                      titleFa: 'ارسال پستی به شهرستان‌ها',
+                      titleEn: 'Nationwide Post Shipping',
+                      descFa: `هزینه پایه ${formatToman(deliverySettings.iranPostBaseToman, lang)}`,
+                      descEn: `Base ${formatToman(deliverySettings.iranPostBaseToman, lang)}`,
                     },
                   ]
                     .filter((m) => m.enabled)
@@ -416,11 +350,10 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                 )}
               </div>
 
-              {/* Customer & Address Form */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="chk-fullname" className="block text-xs font-medium text-[#1D1D1F] mb-1">
-                    {isFa ? 'نام و نام خانوادگی گیرنده (مطابق کارت ملی)' : 'Recipient Full Name'}
+                    {isFa ? 'نام و نام خانوادگی گیرنده' : 'Recipient Full Name'}
                   </label>
                   <input
                     id="chk-fullname"
@@ -434,7 +367,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
 
                 <div>
                   <label htmlFor="chk-mobile" className="block text-xs font-medium text-[#1D1D1F] mb-1">
-                    {isFa ? 'شماره موبایل (جهت پیامک همتا و رهگیری)' : 'Iranian Mobile Number (09xxxxxxxxx)'}
+                    {isFa ? 'شماره موبایل' : 'Iranian Mobile Number (09xxxxxxxxx)'}
                   </label>
                   <input
                     id="chk-mobile"
@@ -488,7 +421,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
 
                     <div className="sm:col-span-2">
                       <label htmlFor="chk-address" className="block text-xs font-medium text-[#1D1D1F] mb-1">
-                        {isFa ? 'نشانی دقیق پستی، پلاک و واحد' : 'Complete Street Address, Plaque & Unit'}
+                        {isFa ? 'نشانی دقیق پستی' : 'Complete Street Address'}
                       </label>
                       <textarea
                         id="chk-address"
@@ -507,103 +440,31 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
 
           {step === 'payment' && (
             <div className="space-y-4">
-              <p className="text-xs text-[#6E6E73]">
-                {isFa
-                  ? 'درگاه پرداخت مورد نظر خود را انتخاب کنید. تمامی درگاه‌های آنلاین متصل به شبکه شاپرک بانک مرکزی هستند:'
-                  : 'Select your preferred Iranian payment option (connected to Central Bank Shaparak network):'}
-              </p>
-
-              <div className="space-y-3">
-                {gateways
-                  .filter((g) => g.enabled)
-                  .map((gw) => {
-                    const active = form.paymentGateway === gw.id;
-                    return (
-                      <button
-                        key={gw.id}
-                        type="button"
-                        onClick={() => setForm({ ...form, paymentGateway: gw.id })}
-                        className={`w-full p-4 rounded-2xl border text-start transition-colors flex items-start gap-3.5 ${
-                          active
-                            ? 'border-[#0066CC] bg-[#0066CC]/[0.04]'
-                            : 'border-black/10 bg-white hover:bg-[#F5F5F7]'
-                        }`}
-                      >
-                        <CreditCard className="w-5 h-5 text-[#0066CC] shrink-0 mt-0.5" />
-                        <div className="space-y-1 flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-[#1D1D1F]">
-                              {isFa ? gw.nameFa : gw.nameEn}
-                            </span>
-                            <span className="text-[11px] font-mono text-[#6E6E73]">{gw.id.toUpperCase()}</span>
-                          </div>
-                          <p className="text-[11px] text-[#1D1D1F] font-medium">
-                            {isFa ? gw.typeFa : gw.typeEn}
-                          </p>
-                          <p className="text-[11px] text-[#6E6E73]">
-                            {isFa ? gw.descriptionFa : gw.descriptionEn}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
-          {step === 'receipt' && confirmedOrder && (
-            <div className="bg-[#F5F5F7] rounded-2xl p-6 space-y-5 border border-black/[0.06]">
-              <div className="flex items-center gap-3">
-                <CheckCircle2 className="w-8 h-8 text-[#15803D] shrink-0" />
-                <div>
-                  <h3 className="text-base font-bold text-[#1D1D1F]">
+              <div
+                role="alert"
+                className="p-5 rounded-2xl bg-[#FFFBEB] border border-[#F59E0B]/40 space-y-2.5 text-xs text-[#1D1D1F]"
+              >
+                <div className="flex items-center gap-2 font-bold text-[#B45309] text-sm">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>
                     {isFa
-                      ? `سفارش ${confirmedOrder.orderNumber} با موفقیت ثبت شد`
-                      : `Order ${confirmedOrder.orderNumber} Confirmed`}
-                  </h3>
-                  <p className="text-xs text-[#6E6E73]">
-                    {isFa
-                      ? `تاریخ ثبت: ${formatJalaliDate(confirmedOrder.createdAtIso, 'fa')}`
-                      : `Date: ${formatJalaliDate(confirmedOrder.createdAtIso, 'en')}`}
-                  </p>
+                      ? 'پرداخت آنلاین در حال حاضر فعال نیست'
+                      : 'Online Payment Is Not Enabled Yet'}
+                  </span>
                 </div>
+                <p className="leading-relaxed text-[#515154]">
+                  {isFa
+                    ? 'در فاز اول سامانه پارس‌تک، اتصال به درگاه پرداخت آنلاین بانکی و صدور رسید تراکنش غیرفعال است. محاسبه قیمت سبد خرید و هزینه ارسال صرفاً جهت برآورد پیش‌فاکتور انجام می‌شود.'
+                    : 'Online payment processing and transaction receipts are not enabled in Phase 1. Your bag total and shipping estimate are calculated for preview only.'}
+                </p>
               </div>
-
-              <dl className="divide-y divide-black/[0.06] text-xs border-t border-b border-black/[0.06]">
-                <div className="py-2.5 flex justify-between">
-                  <dt className="text-[#6E6E73]">{isFa ? 'کد رهگیری مرسوله:' : 'Shipment Tracking Code:'}</dt>
-                  <dd className="font-mono font-bold text-[#1D1D1F]">{confirmedOrder.trackingCode}</dd>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <dt className="text-[#6E6E73]">{isFa ? 'شماره مرجع شاپرک / پرداخت:' : 'Shaparak / POS Ref ID:'}</dt>
-                  <dd className="font-mono text-[#1D1D1F]">{confirmedOrder.paymentRefId}</dd>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <dt className="text-[#6E6E73]">{isFa ? 'تحویل‌گیرنده:' : 'Recipient:'}</dt>
-                  <dd className="font-medium text-[#1D1D1F]">
-                    {confirmedOrder.customerName} ({confirmedOrder.customerMobile})
-                  </dd>
-                </div>
-                <div className="py-2.5 flex justify-between">
-                  <dt className="text-[#6E6E73]">{isFa ? 'مبلغ کل تسویه‌شده:' : 'Total Paid:'}</dt>
-                  <dd className="font-bold text-[#0066CC] tabular-nums">
-                    {formatToman(confirmedOrder.payableToman, lang)}
-                  </dd>
-                </div>
-              </dl>
-
-              <p className="text-xs text-[#515154] leading-relaxed">
-                {isFa
-                  ? 'پیامک حاوی کد رهگیری و لینک فاکتور رسمی به شماره همراه شما ارسال شد. همچنین می‌توانید در بخش «حساب کاربری» وضعیت لحظه‌ای سفارش را دنبال کنید.'
-                  : 'An SMS with your tracking code and official invoice has been dispatched. You can track this order anytime in the Customer Account view.'}
-              </p>
             </div>
           )}
         </div>
 
         {/* Sticky Bottom Summary & Action Footer */}
         <div className="p-6 border-t border-black/[0.08] bg-[#FBFBFD] space-y-4">
-          {step !== 'receipt' && cart.length > 0 && (
+          {cart.length > 0 && (
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between text-[#6E6E73]">
                 <span>{isFa ? 'جمع اقلام سبد:' : 'Items Subtotal:'}</span>
@@ -616,7 +477,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                 </div>
               )}
               <div className="flex justify-between text-[#6E6E73]">
-                <span>{isFa ? 'هزینه ارسال و بسته‌بندی بیمه‌شده:' : 'Shipping & Insurance:'}</span>
+                <span>{isFa ? 'برآورد هزینه ارسال:' : 'Estimated Shipping:'}</span>
                 <span className="tabular-nums">
                   {totals.shippingToman === 0
                     ? isFa
@@ -626,11 +487,11 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                 </span>
               </div>
               <div className="flex justify-between text-sm font-bold text-[#1D1D1F] pt-2 border-t border-black/[0.06]">
-                <span>{isFa ? 'مبلغ قابل پرداخت:' : 'Total Payable:'}</span>
+                <span>{isFa ? 'جمع کل برآوردی:' : 'Estimated Total:'}</span>
                 <div className="text-end">
                   <p className="tabular-nums text-[#0066CC]">{formatToman(totals.payableToman, lang)}</p>
                   <p className="text-[11px] font-normal text-[#6E6E73] tabular-nums">
-                    {formatNumber(totals.payableRial, lang)} {isFa ? 'ریال در درگاه بانکی' : 'Rial (Shaparak IPG)'}
+                    {formatNumber(totals.payableRial, lang)} {isFa ? 'ریال' : 'IRR'}
                   </p>
                 </div>
               </div>
@@ -653,7 +514,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                 onClick={() => setStep('shipping')}
                 className="px-4 py-3 rounded-xl bg-[#F5F5F7] text-[#1D1D1F] text-xs font-semibold"
               >
-                {isFa ? 'ویرایش آدرس' : 'Edit Shipping'}
+                {isFa ? 'بازگشت به اطلاعات ارسال' : 'Back to Delivery'}
               </button>
             )}
 
@@ -663,7 +524,7 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                 onClick={() => setStep('shipping')}
                 className="w-full py-3.5 px-6 rounded-xl bg-[#0066CC] hover:bg-[#0055B3] text-white text-xs font-semibold flex items-center justify-center gap-2"
               >
-                <span>{isFa ? 'ادامه جهت ثبت آدرس و نحوه ارسال' : 'Proceed to Delivery Options'}</span>
+                <span>{isFa ? 'ادامه جهت محاسبه هزینه ارسال' : 'Proceed to Delivery Estimate'}</span>
                 {isFa ? <ArrowLeft className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
               </button>
             )}
@@ -674,34 +535,21 @@ export const CartCheckoutModal: React.FC<CartCheckoutModalProps> = ({
                 onClick={handleProceedToPayment}
                 className="flex-1 py-3.5 px-6 rounded-xl bg-[#0066CC] hover:bg-[#0055B3] text-white text-xs font-semibold flex items-center justify-center gap-2"
               >
-                <span>{isFa ? 'تأیید اطلاعات و انتخاب درگاه پرداخت' : 'Continue to Payment Gateway'}</span>
+                <span>{isFa ? 'بررسی مرحله پرداخت' : 'Continue to Payment Step'}</span>
               </button>
             )}
 
             {step === 'payment' && (
               <button
                 type="button"
-                onClick={handleFinalizeOrder}
-                className="flex-1 py-3.5 px-6 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white text-xs font-semibold flex items-center justify-center gap-2"
+                disabled
+                className="flex-1 py-3.5 px-6 rounded-xl bg-black/15 text-[#6E6E73] text-xs font-semibold cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <span>
                   {isFa
-                    ? `پرداخت امن و ثبت نهایی سفارش (${formatToman(totals.payableToman, lang)})`
-                    : `Complete Order (${formatToman(totals.payableToman, lang)})`}
+                    ? 'پرداخت آنلاین فعال نیست (غیرفعال در فاز اول)'
+                    : 'Online Payment Not Enabled Yet'}
                 </span>
-              </button>
-            )}
-
-            {step === 'receipt' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('cart');
-                  onClose();
-                }}
-                className="w-full py-3.5 px-6 rounded-xl bg-[#1D1D1F] text-white text-xs font-semibold"
-              >
-                {isFa ? 'بستن و بازگشت به فروشگاه' : 'Done & Return to Store'}
               </button>
             )}
           </div>

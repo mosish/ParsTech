@@ -1,7 +1,8 @@
+'use client';
+
 import React, { useState } from 'react';
 import {
   Star,
-  ShieldCheck,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -25,12 +26,11 @@ interface ProductReviewsSectionProps {
   productId: string;
   productName: string;
   reviews: ProductReview[];
-  adminRole: AdminRole;
-  isAdminAuthenticated: boolean;
-  onToggleAdminAuth: (authenticated: boolean) => void;
+  adminRole?: AdminRole;
+  isAdminAuthenticated?: boolean;
   onSubmitReview: (review: Omit<ProductReview, 'id' | 'createdAtIso' | 'approved'>) => void;
-  onToggleReviewApproval: (reviewId: string, approved: boolean) => void;
-  onDeleteReview: (reviewId: string) => void;
+  onToggleReviewApproval?: (reviewId: string, approved: boolean) => void;
+  onDeleteReview?: (reviewId: string) => void;
 }
 
 export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
@@ -38,9 +38,8 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
   productId,
   productName,
   reviews,
-  adminRole,
-  isAdminAuthenticated,
-  onToggleAdminAuth,
+  adminRole = 'staff',
+  isAdminAuthenticated = false,
   onSubmitReview,
   onToggleReviewApproval,
   onDeleteReview,
@@ -56,9 +55,9 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
 
   const summary = calculateProductRatingSummary(reviews, productId);
   const allProductReviews = reviews.filter((r) => r.productId === productId);
-  const canModerate = isAdminAuthenticated && canPerformAdminAction(adminRole, 'moderate_reviews');
+  const canModerate =
+    Boolean(isAdminAuthenticated) && canPerformAdminAction(adminRole, 'moderate_reviews');
 
-  // Customers see only approved reviews; authenticated admins in moderation mode see all reviews (approved + pending)
   const visibleReviews = canModerate
     ? allProductReviews
     : allProductReviews.filter((r) => r.approved);
@@ -69,12 +68,13 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
     setFormErrors(validation.errors);
     if (!validation.valid) return;
 
+    // Never mark reviews as verified purchases without server-side purchase verification
     onSubmitReview({
       productId,
       authorName: form.authorName.trim(),
       rating: form.rating,
       comment: form.comment.trim(),
-      verifiedBuyer: true,
+      verifiedBuyer: false,
     });
 
     setForm({ authorName: '', rating: 5, comment: '' });
@@ -84,43 +84,23 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
 
   return (
     <div className="pt-8 mt-8 border-t border-black/[0.08] space-y-8">
-      {/* Top Header + Authenticated Admin Moderation Switch */}
+      {/* Top Header — No public checkbox-based admin authentication */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h3 className="text-lg font-bold text-[#1D1D1F]">
-            {isFa ? 'امتیازات و دیدگاه‌های خریداران' : 'Customer Ratings & Reviews'}
+            {isFa ? 'امتیازات و دیدگاه‌های کاربران' : 'User Ratings & Reviews'}
           </h3>
           <p className="text-xs text-[#6E6E73] mt-0.5">
             {isFa
-              ? `نظرات ثبت‌شده برای ${productName} پس از تایید کارشناس در این بخش نمایش داده می‌شوند.`
-              : `Verified customer reviews for ${productName}, moderated by ParsTech staff.`}
+              ? `نظرات ثبت‌شده برای ${productName} پس از بررسی در این بخش نمایش داده می‌شوند.`
+              : `Submitted reviews for ${productName} are displayed after moderation.`}
           </p>
-        </div>
-
-        {/* Authenticated Admin Moderation Toggle */}
-        <div className="flex items-center gap-2.5 bg-[#F5F5F7] px-3.5 py-2 rounded-xl border border-black/[0.06]">
-          <ShieldCheck className="w-4 h-4 text-[#0066CC] shrink-0" />
-          <label className="inline-flex items-center gap-2 text-xs font-semibold text-[#1D1D1F] cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={isAdminAuthenticated}
-              onChange={(e) => onToggleAdminAuth(e.target.checked)}
-              className="rounded text-[#0066CC] focus:ring-[#0066CC]"
-            />
-            <span>
-              {isFa
-                ? `حالت مدیریت و تایید نظرات (${summary.pendingCount > 0 ? `${formatNumber(summary.pendingCount, 'fa')} در انتظار` : 'ادمین'})`
-                : `Admin Review Approval Mode (${summary.pendingCount} pending)`}
-            </span>
-          </label>
         </div>
       </div>
 
       {/* Grid: Left/Start = Aggregate Rating + Submit Form, Right/End = Reviews List */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Column 1 (5 cols): Rating Breakdown & Submit Review Form */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Rating Summary Box */}
           <div className="bg-[#F5F5F7] rounded-2xl p-5 border border-black/[0.05] space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -157,7 +137,6 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
               </div>
             </div>
 
-            {/* 5 to 1 Star Bars */}
             <div className="space-y-1.5 pt-2 border-t border-black/[0.06] text-[11px]">
               {([5, 4, 3, 2, 1] as const).map((star) => {
                 const count = summary.distribution[star];
@@ -185,7 +164,6 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
             </div>
           </div>
 
-          {/* Submit a New Review Form */}
           <form
             onSubmit={handleFormSubmit}
             className="bg-[#F5F5F7] rounded-2xl p-5 border border-black/[0.05] space-y-4"
@@ -193,7 +171,7 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
             <div className="flex items-center gap-2">
               <MessageSquarePlus className="w-4 h-4 text-[#0066CC]" />
               <h4 className="text-sm font-bold text-[#1D1D1F]">
-                {isFa ? 'ثبت امتیاز و دیدگاه جدید' : 'Write a Customer Review'}
+                {isFa ? 'ثبت امتیاز و دیدگاه جدید' : 'Write a Product Review'}
               </h4>
             </div>
 
@@ -206,19 +184,13 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>
                     {isFa
-                      ? 'دیدگاه شما با موفقیت ثبت شد و در صف تایید مدیر قرار گرفت.'
-                      : 'Your review has been submitted and is pending admin approval.'}
+                      ? 'دیدگاه شما ثبت شد و پس از تایید مدیر نمایش داده می‌شود.'
+                      : 'Your review has been submitted and is pending admin moderation.'}
                   </span>
                 </div>
-                <p className="text-[11px] text-[#1D1D1F]">
-                  {isFa
-                    ? 'می‌توانید با فعال کردن تیک «حالت مدیریت و تایید نظرات» در بالای همین بخش، دیدگاه خود را فوراً تایید و منتشر کنید.'
-                    : 'Toggle "Admin Review Approval Mode" above or visit the Admin Panel to approve and publish it immediately.'}
-                </p>
               </div>
             )}
 
-            {/* Star Selector */}
             <div>
               <span className="block text-xs font-medium text-[#1D1D1F] mb-1.5">
                 {isFa ? 'امتیاز شما به این محصول:' : 'Your Star Rating:'}
@@ -255,10 +227,9 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
               )}
             </div>
 
-            {/* Author Name Input */}
             <div>
               <label htmlFor="review-author-name" className="block text-xs font-medium text-[#1D1D1F] mb-1">
-                {isFa ? 'نام و نام خانوادگی شما' : 'Your Name'}
+                {isFa ? 'نام شما' : 'Your Name'}
               </label>
               <input
                 id="review-author-name"
@@ -268,7 +239,7 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
                   setForm({ ...form, authorName: e.target.value });
                   setSubmittedNotice(false);
                 }}
-                placeholder={isFa ? 'مثلاً: سارا محمدی' : 'e.g. Sara Mohammadi'}
+                placeholder={isFa ? 'نام نمایشی شما' : 'Your display name'}
                 className="w-full px-3.5 py-2 rounded-xl bg-white border border-black/10 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#0066CC]"
               />
               {formErrors.authorName && (
@@ -276,10 +247,9 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
               )}
             </div>
 
-            {/* Written Review Textarea */}
             <div>
               <label htmlFor="review-comment-text" className="block text-xs font-medium text-[#1D1D1F] mb-1">
-                {isFa ? 'متن تجربه خرید و بررسی فنی' : 'Written Review'}
+                {isFa ? 'متن بررسی فنی' : 'Written Review'}
               </label>
               <textarea
                 id="review-comment-text"
@@ -291,8 +261,8 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
                 }}
                 placeholder={
                   isFa
-                    ? 'نظر خود درباره اصالت کالا، کیفیت ساخت، باتری یا سرعت ارسال پارس‌تک را بنویسید...'
-                    : 'Share your experience with build quality, battery life, Hamta activation, or delivery...'
+                    ? 'دیدگاه فنی خود درباره عملکرد، کیفیت ساخت یا نمایشگر دستگاه را بنویسید...'
+                    : 'Share your technical feedback on performance, display, or build quality...'
                 }
                 className="w-full px-3.5 py-2 rounded-xl bg-white border border-black/10 text-xs text-[#1D1D1F] focus:outline-none focus:border-[#0066CC]"
               />
@@ -305,12 +275,11 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
               type="submit"
               className="w-full py-2.5 px-4 rounded-xl bg-[#0066CC] hover:bg-[#0055B3] text-white text-xs font-semibold transition-colors"
             >
-              {isFa ? 'ثبت دیدگاه و ارسال برای تایید' : 'Submit Review'}
+              {isFa ? 'ثبت دیدگاه' : 'Submit Review'}
             </button>
           </form>
         </div>
 
-        {/* Column 2 (7 cols): Reviews List + Admin Display Toggles */}
         <div className="lg:col-span-7 space-y-4">
           {visibleReviews.length === 0 ? (
             <div className="bg-[#F5F5F7] rounded-2xl p-8 text-center space-y-2 border border-black/[0.04]">
@@ -321,8 +290,8 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
               </p>
               <p className="text-xs text-[#6E6E73]">
                 {isFa
-                  ? 'اولین نفری باشید که تجربه خرید خود را درباره این دستگاه ثبت می‌کند.'
-                  : 'Be the first customer to submit a rating and written review.'}
+                  ? 'اولین نفری باشید که دیدگاه فنی خود را درباره این دستگاه ثبت می‌کند.'
+                  : 'Be the first user to submit a rating and technical review.'}
               </p>
             </div>
           ) : (
@@ -345,16 +314,6 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
                       <span className="text-[11px] text-[#6E6E73]">
                         {formatJalaliDate(rev.createdAtIso, lang)}
                       </span>
-                      {rev.verifiedBuyer && (
-                        <>
-                          <span aria-hidden="true" className="text-xs text-[#6E6E73]">
-                            ·
-                          </span>
-                          <span className="text-[11px] text-[#15803D] font-medium">
-                            {isFa ? 'خریدار تاییدشده' : 'Verified Buyer'}
-                          </span>
-                        </>
-                      )}
                     </div>
 
                     <div className="flex items-center gap-1">
@@ -374,8 +333,7 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
                     </div>
                   </div>
 
-                  {/* Authenticated Admin Display Approval Toggle Controls */}
-                  {canModerate && (
+                  {canModerate && onToggleReviewApproval && onDeleteReview && (
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
@@ -390,7 +348,7 @@ export const ProductReviewsSection: React.FC<ProductReviewsSectionProps> = ({
                         {rev.approved ? (
                           <>
                             <Eye className="w-3.5 h-3.5 shrink-0" />
-                            <span>{isFa ? 'تاییدشده (عمومی)' : 'Approved (Public)'}</span>
+                            <span>{isFa ? 'تاییدشده' : 'Approved'}</span>
                           </>
                         ) : (
                           <>

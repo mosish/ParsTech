@@ -1,819 +1,703 @@
+'use client';
+
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
-  BarChart3,
+  ShieldCheck,
   Package,
-  ShoppingCart,
-  Settings,
-  LayoutTemplate,
-  Plus,
-  Trash2,
-  Lock,
+  LogOut,
+  KeyRound,
+  Save,
   Check,
-  Printer,
-  MessageSquare,
-  Star,
-  Eye,
-  EyeOff,
+  AlertCircle,
+  FileText,
+  Lock,
 } from 'lucide-react';
 import {
   formatToman,
   formatNumber,
-  formatJalaliDate,
-  canPerformAdminAction,
+  tomanToRial,
   type Language,
-  type AdminRole,
-  type Product,
-  type ProductReview,
-  type DeliverySettings,
-  type OrderStatus,
 } from '../utils/commerce';
-import type { OrderRecord, GatewayConfig, StoreCmsConfig } from '../data/storeData';
+import type { SerializedCatalogProduct } from '../server/serialization';
+
+export interface AdminUserInfo {
+  id: string;
+  email: string;
+  fullName: string;
+  role: 'OWNER' | 'STAFF';
+}
+
+export interface SerializedAuditLogEntry {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  ipAddress: string | null;
+  actorEmail: string | null;
+  actorRole: string | null;
+  createdAt: string;
+  metadata: Record<string, unknown> | null;
+}
 
 interface AdminViewProps {
-  lang: Language;
-  role: AdminRole;
-  onChangeRole: (role: AdminRole) => void;
-  products: Product[];
-  onUpdateProducts: (products: Product[]) => void;
-  orders: OrderRecord[];
-  onUpdateOrders: (orders: OrderRecord[]) => void;
-  deliverySettings: DeliverySettings;
-  onUpdateDeliverySettings: (settings: DeliverySettings) => void;
-  gateways: GatewayConfig[];
-  onUpdateGateways: (gateways: GatewayConfig[]) => void;
-  cms: StoreCmsConfig;
-  onUpdateCms: (cms: StoreCmsConfig) => void;
-  reviews: ProductReview[];
-  onToggleReviewApproval: (reviewId: string, approved: boolean) => void;
-  onDeleteReview: (reviewId: string) => void;
+  lang?: Language;
+  currentUser: AdminUserInfo;
+  csrfToken: string;
+  initialProducts: SerializedCatalogProduct[];
+  initialAuditLogs: SerializedAuditLogEntry[];
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
-  lang,
-  role,
-  onChangeRole,
-  products,
-  onUpdateProducts,
-  orders,
-  onUpdateOrders,
-  deliverySettings,
-  onUpdateDeliverySettings,
-  gateways,
-  onUpdateGateways,
-  cms,
-  onUpdateCms,
-  reviews,
-  onToggleReviewApproval,
-  onDeleteReview,
+  lang: initialLang = 'fa',
+  currentUser,
+  csrfToken,
+  initialProducts,
+  initialAuditLogs,
 }) => {
+  const router = useRouter();
+  const [lang, setLang] = useState<Language>(initialLang);
   const isFa = lang === 'fa';
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'orders' | 'reviews' | 'settings' | 'cms'>('dashboard');
-  const [savedBanner, setSavedBanner] = useState<string | null>(null);
+  const isOwner = currentUser.role === 'OWNER';
 
-  // New Product Form State
-  const [newProd, setNewProd] = useState({
-    sku: 'PT-IP16-128-CH',
-    category: 'mobiles' as Product['category'],
-    brand: 'Apple' as Product['brand'],
-    nameFa: 'آیفون ۱۶ استاندارد ۱۲۸ گیگابایت',
-    nameEn: 'iPhone 16 128GB Dual SIM',
-    priceToman: 66500000,
-    stockCount: 10,
+  const [activeTab, setActiveTab] = useState<'inventory' | 'audit' | 'security'>('inventory');
+  const [products, setProducts] = useState<SerializedCatalogProduct[]>(initialProducts);
+  const [auditLogs, setAuditLogs] = useState<SerializedAuditLogEntry[]>(initialAuditLogs);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Track edited variant fields by variant ID
+  const [edits, setEdits] = useState<
+    Record<string, { priceToman: string; stockCount: string }>
+  >({});
+  const [savingVariantId, setSavingVariantId] = useState<string | null>(null);
+  const [savedVariantId, setSavedVariantId] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordStatus, setPasswordStatus] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  const filteredProducts = products.filter((p) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      p.nameFa.toLowerCase().includes(q) ||
+      p.nameEn.toLowerCase().includes(q) ||
+      p.sku.toLowerCase().includes(q) ||
+      p.brand.toLowerCase().includes(q)
+    );
   });
 
-  const totalRevenueToman = orders
-    .filter((o) => o.status !== 'cancelled')
-    .reduce((acc, o) => acc + o.payableToman, 0);
-
-  const totalUnitsInStock = products.reduce((acc, p) => acc + p.stockCount, 0);
-  const lowStockProducts = products.filter((p) => p.stockCount <= 4);
-
-  const triggerSavedFeedback = (msgFa: string, msgEn: string) => {
-    setSavedBanner(isFa ? msgFa : msgEn);
-    setTimeout(() => setSavedBanner(null), 2200);
-  };
-
-  const handleUpdateProductField = (id: string, field: 'priceToman' | 'stockCount', value: number) => {
-    const updated = products.map((p) =>
-      p.id === id ? { ...p, [field]: Math.max(0, Math.round(value)) } : p
+  const getVariantEdit = (
+    variantId: string,
+    defaultPrice: number,
+    defaultStock: number
+  ) => {
+    return (
+      edits[variantId] ?? {
+        priceToman: String(defaultPrice),
+        stockCount: String(defaultStock),
+      }
     );
-    onUpdateProducts(updated);
   };
 
-  const handleDeleteProduct = (id: string) => {
-    if (!canPerformAdminAction(role, 'delete_product')) return;
-    onUpdateProducts(products.filter((p) => p.id !== id));
-    triggerSavedFeedback('محصول از کاتالوگ حذف شد.', 'Product removed from catalog.');
+  const handleEditChange = (
+    variantId: string,
+    defaultPrice: number,
+    defaultStock: number,
+    field: 'priceToman' | 'stockCount',
+    value: string
+  ) => {
+    const existing = getVariantEdit(variantId, defaultPrice, defaultStock);
+    setEdits((prev) => ({
+      ...prev,
+      [variantId]: {
+        ...existing,
+        [field]: value,
+      },
+    }));
   };
 
-  const handleCreateProduct = (e: React.FormEvent) => {
+  const handleSaveVariant = async (
+    variantId: string,
+    defaultPrice: number,
+    defaultStock: number
+  ) => {
+    setErrorBanner(null);
+    const currentEdit = getVariantEdit(variantId, defaultPrice, defaultStock);
+    const parsedPrice = Number(currentEdit.priceToman);
+    const parsedStock = Number(currentEdit.stockCount);
+
+    if (!Number.isInteger(parsedPrice) || parsedPrice < 0) {
+      setErrorBanner(
+        isFa
+          ? 'قیمت باید یک عدد صحیح نامنفی (به تومان) باشد.'
+          : 'Price must be a nonnegative integer in Tomans.'
+      );
+      return;
+    }
+
+    if (!Number.isInteger(parsedStock) || parsedStock < 0) {
+      setErrorBanner(
+        isFa
+          ? 'موجودی انبار باید یک عدد صحیح نامنفی باشد.'
+          : 'Stock count must be a nonnegative integer.'
+      );
+      return;
+    }
+
+    setSavingVariantId(variantId);
+    try {
+      const payload: {
+        variantId: string;
+        stockCount: number;
+        priceToman?: number;
+      } = {
+        variantId,
+        stockCount: parsedStock,
+      };
+
+      // Only OWNER is permitted to send price changes; if STAFF tries or if OWNER changes price:
+      if (isOwner || parsedPrice !== defaultPrice) {
+        payload.priceToman = parsedPrice;
+      }
+
+      const res = await fetch('/api/admin/variants', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorBanner(
+          data.error ||
+            (isFa ? 'خطا در بروزرسانی تنوع محصول' : 'Failed to update product variant.')
+        );
+        return;
+      }
+
+      if (data.products) {
+        setProducts(data.products);
+      }
+      if (data.auditLogs) {
+        setAuditLogs(data.auditLogs);
+      }
+
+      setSavedVariantId(variantId);
+      setTimeout(() => setSavedVariantId(null), 2000);
+    } catch {
+      setErrorBanner(
+        isFa ? 'خطای ارتباط با سرور هنگام ذخیره تغییرات.' : 'Network error while saving changes.'
+      );
+    } finally {
+      setSavingVariantId(null);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/logout', {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': csrfToken,
+        },
+      });
+    } finally {
+      router.push('/admin/login');
+      router.refresh();
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
-    const created: Product = {
-      id: `prod-${Date.now()}`,
-      sku: newProd.sku,
-      category: newProd.category,
-      brand: newProd.brand,
-      nameFa: newProd.nameFa,
-      nameEn: newProd.nameEn,
-      subtitleFa: 'پلمپ اصلی شرکتی · به همراه کد رجیستری همتا',
-      subtitleEn: 'Factory Sealed · Official Hamta Registry',
-      priceToman: Number(newProd.priceToman) || 10000000,
-      stockCount: Number(newProd.stockCount) || 1,
-      warrantyFa: '۱۸ ماه گارانتی شرکتی پارس‌تک',
-      warrantyEn: '18-Month ParsTech Corporate Warranty',
-      colors: [{ nameFa: 'مشکی استاندارد', nameEn: 'Black', hex: '#27272A' }],
-      artworkKey:
-        newProd.category === 'mobiles'
-          ? 'iphone16pro'
-          : newProd.category === 'laptops'
-            ? 'macbookprom4'
-            : newProd.category === 'consoles'
-              ? 'ps5pro'
-              : 'ankercharger',
-      featured: true,
-      specs: [
-        { labelFa: 'گارانتی', labelEn: 'Warranty', valueFa: '۱۸ ماه شرکتی پارس‌تک', valueEn: '18-Month Corporate' },
-      ],
-    };
-    onUpdateProducts([created, ...products]);
-    triggerSavedFeedback('کالای جدید به فروشگاه اضافه شد.', 'New product added to storefront.');
-  };
-
-  const handleOrderStatusChange = (orderId: string, newStatus: OrderStatus) => {
-    onUpdateOrders(
-      orders.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
-    );
-    triggerSavedFeedback('وضعیت سفارش بروزرسانی شد.', 'Order status updated.');
+    setPasswordStatus(null);
+    setChangingPassword(true);
+    try {
+      const res = await fetch('/api/admin/password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPasswordStatus({
+          type: 'error',
+          message:
+            data.error ||
+            (isFa ? 'خطا در تغییر رمز عبور.' : 'Failed to update password.'),
+        });
+        return;
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setPasswordStatus({
+        type: 'success',
+        message: isFa
+          ? 'رمز عبور با موفقیت تغییر یافت و تمامی نشست‌های قبلی باطل شدند. در حال انتقال به صفحه ورود...'
+          : 'Password updated and all active sessions revoked. Redirecting to login...',
+      });
+      setTimeout(() => {
+        router.push('/admin/login');
+        router.refresh();
+      }, 1200);
+    } catch {
+      setPasswordStatus({
+        type: 'error',
+        message: isFa ? 'خطا در برقراری ارتباط با سرور.' : 'Server communication error.',
+      });
+    } finally {
+      setChangingPassword(false);
+    }
   };
 
   return (
     <div className="max-w-[1200px] mx-auto px-6 py-10 space-y-8">
-      {/* Admin Top Header & RBAC Role Switcher */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-black/[0.08] pb-6">
-        <div>
-          <p className="text-xs text-[#6E6E73]">
-            {isFa ? 'پنل مدیریت یکپارچه فروشگاه پارس‌تک (مرکز موبایل شرق)' : 'ParsTech Store & ERP Admin Console'}
-          </p>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#1D1D1F] mt-1">
-            {isFa ? 'مدیریت موجودی، قیمت روز، سفارش‌ها و درگاه‌ها' : 'Inventory, Orders, Gateways & CMS'}
+      {/* Authenticated Server Session Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-black/[0.08] pb-6">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs text-[#0066CC] font-semibold">
+            <ShieldCheck className="w-4 h-4" />
+            <span>
+              {isFa
+                ? 'پنل مدیریت امن (نشست سرور PostgreSQL)'
+                : 'Authenticated Admin Console (Server Session)'}
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold text-[#1D1D1F]">
+            {isFa ? 'مدیریت موجودی و قیمت تنوع محصولات' : 'Variant Inventory & Pricing Administration'}
           </h1>
+          <p className="text-xs text-[#6E6E73]">
+            {isFa
+              ? `کاربر متصل: ${currentUser.fullName} (${currentUser.email}) — نقش سرور: ${
+                  isOwner ? 'مالک (OWNER - دسترسی کامل قیمت و موجودی)' : 'کارشناس انبار (STAFF - فقط ویرایش موجودی)'
+                }`
+              : `Signed in as ${currentUser.fullName} (${currentUser.email}) — Server Role: ${currentUser.role}`}
+          </p>
         </div>
 
-        {/* Role-Based Access Switcher (Owner vs Staff) */}
-        <div className="flex items-center gap-3 bg-[#F5F5F7] p-1.5 rounded-xl border border-black/[0.06]">
-          <span className="text-xs text-[#6E6E73] px-2">
-            {isFa ? 'سطح دسترسی (RBAC):' : 'Active Role (RBAC):'}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span
+            data-testid="admin-server-role-badge"
+            className="px-3 py-1.5 rounded-xl bg-[#F5F5F7] border border-black/10 text-xs font-semibold text-[#1D1D1F]"
+          >
+            {isFa ? `نقش: ${currentUser.role}` : `Role: ${currentUser.role}`}
           </span>
           <button
             type="button"
-            onClick={() => onChangeRole('owner')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-              role === 'owner' ? 'bg-[#1D1D1F] text-white' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-            }`}
+            onClick={() => setLang(isFa ? 'en' : 'fa')}
+            className="px-3 py-1.5 rounded-xl border border-black/10 text-xs font-semibold text-[#1D1D1F] hover:bg-[#F5F5F7]"
           >
-            {isFa ? 'مدیر ارشد (Owner)' : 'Store Owner (Full Access)'}
+            {isFa ? 'EN' : 'فارسی'}
           </button>
           <button
             type="button"
-            onClick={() => onChangeRole('staff')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-              role === 'staff' ? 'bg-[#1D1D1F] text-white' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-            }`}
+            data-testid="admin-logout-btn"
+            onClick={handleLogout}
+            className="px-3.5 py-2 rounded-xl bg-[#1D1D1F] hover:bg-black/80 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
           >
-            {isFa ? 'کارشناس فروش (Staff)' : 'Sales Staff (Restricted)'}
+            <LogOut className="w-3.5 h-3.5" />
+            <span>{isFa ? 'خروج امن و ابطال نشست' : 'Sign Out'}</span>
           </button>
         </div>
       </div>
 
-      {savedBanner && (
-        <div className="p-3.5 rounded-xl bg-[#15803D] text-white text-xs font-medium flex items-center gap-2">
-          <Check className="w-4 h-4" />
-          <span>{savedBanner}</span>
-        </div>
-      )}
+      {/* Sub-Navigation */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-black/[0.08] pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveTab('inventory')}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors ${
+            activeTab === 'inventory'
+              ? 'bg-[#1D1D1F] text-white'
+              : 'text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-[#F5F5F7]'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>
+            {isFa ? 'تنوع‌ها، موجودی و قیمت (PostgreSQL)' : 'Variants, Stock & Pricing (PostgreSQL)'}
+          </span>
+        </button>
 
-      {/* Admin Sub-Navigation */}
-      <div className="flex items-center gap-1 p-1 bg-[#F5F5F7] rounded-2xl overflow-x-auto">
-        {[
-          { id: 'dashboard', icon: BarChart3, labelFa: 'داشبورد فروش و آمار', labelEn: 'Sales Dashboard' },
-          { id: 'products', icon: Package, labelFa: 'مدیریت محصولات و قیمت (CRUD)', labelEn: 'Products & Stock CRUD' },
-          { id: 'orders', icon: ShoppingCart, labelFa: 'مدیریت سفارش‌ها و فاکتور', labelEn: 'Orders & Invoicing' },
-          {
-            id: 'reviews',
-            icon: MessageSquare,
-            labelFa: `تایید دیدگاه‌ها (${formatNumber(reviews.filter((r) => !r.approved).length, 'fa')})`,
-            labelEn: `Reviews (${reviews.filter((r) => !r.approved).length} Pending)`,
-          },
-          { id: 'settings', icon: Settings, labelFa: 'تنظیمات ارسال و درگاه شاپرک', labelEn: 'Delivery & IPG Gateways' },
-          { id: 'cms', icon: LayoutTemplate, labelFa: 'مدیریت محتوا و شبکه‌های اجتماعی', labelEn: 'Banners & Social CMS' },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id as typeof activeTab)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
-                active ? 'bg-white text-[#1D1D1F] shadow-xs' : 'text-[#6E6E73] hover:text-[#1D1D1F]'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span>{isFa ? tab.labelFa : tab.labelEn}</span>
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={() => setActiveTab('audit')}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors ${
+            activeTab === 'audit'
+              ? 'bg-[#1D1D1F] text-white'
+              : 'text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-[#F5F5F7]'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>{isFa ? 'گزارش ممیزی امنیتی (AuditLog)' : 'Security & Audit Logs'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('security')}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors ${
+            activeTab === 'security'
+              ? 'bg-[#1D1D1F] text-white'
+              : 'text-[#6E6E73] hover:text-[#1D1D1F] hover:bg-[#F5F5F7]'
+          }`}
+        >
+          <KeyRound className="w-4 h-4" />
+          <span>{isFa ? 'تغییر رمز عبور (Argon2id)' : 'Change Password'}</span>
+        </button>
       </div>
 
-      {/* Tab 1: Sales & Order Overview Dashboard */}
-      {activeTab === 'dashboard' && (
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-[#F5F5F7] p-6 rounded-2xl border border-black/[0.05]">
-              <p className="text-xs text-[#6E6E73]">{isFa ? 'فروش خالص ثبت‌شده' : 'Total Verified Sales'}</p>
-              <p className="text-xl font-bold text-[#1D1D1F] mt-2 tabular-nums">
-                {formatToman(totalRevenueToman, lang)}
-              </p>
-              <p className="text-[11px] text-[#6E6E73] mt-1">
-                {isFa ? 'تسویه خودکار پایا شاپرک' : 'Settled via Shaparak Paya'}
-              </p>
-            </div>
+      {errorBanner && (
+        <div
+          role="alert"
+          data-testid="admin-error-banner"
+          className="p-4 rounded-2xl bg-[#FEF2F2] border border-[#FECACA] text-xs text-[#991B1B] flex items-center gap-2.5"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{errorBanner}</span>
+        </div>
+      )}
 
-            <div className="bg-[#F5F5F7] p-6 rounded-2xl border border-black/[0.05]">
-              <p className="text-xs text-[#6E6E73]">{isFa ? 'تعداد کل سفارش‌ها' : 'Total Orders'}</p>
-              <p className="text-xl font-bold text-[#1D1D1F] mt-2 tabular-nums">
-                {formatNumber(orders.length, lang)} {isFa ? 'سفارش' : 'Orders'}
+      {/* TAB 1: PostgreSQL Variant Inventory & Pricing */}
+      {activeTab === 'inventory' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#F5F5F7] p-4 rounded-2xl border border-black/[0.05]">
+            <div className="space-y-1 text-xs">
+              <p className="font-semibold text-[#1D1D1F]">
+                {isFa
+                  ? 'واحد پولی پایگاه داده: مبالغ به صورت عدد صحیح ۶۴ بیتی (BigInt) بر حسب تومان ایران ذخیره می‌شوند (۱ تومان = ۱۰ ریال).'
+                  : 'Monetary Unit Convention: Stored as 64-bit integer (BigInt) in whole Iranian Tomans (1 Toman = 10 IRR).'}
               </p>
-              <p className="text-[11px] text-[#6E6E73] mt-1">
-                {isFa ? 'پیک تهران + پست پیشتاز + حضوری' : 'Tehran Courier + Nationwide Post'}
-              </p>
-            </div>
-
-            <div className="bg-[#F5F5F7] p-6 rounded-2xl border border-black/[0.05]">
-              <p className="text-xs text-[#6E6E73]">{isFa ? 'موجودی کل انبار شعبه شرق' : 'Total Units in Stock'}</p>
-              <p className="text-xl font-bold text-[#1D1D1F] mt-2 tabular-nums">
-                {formatNumber(totalUnitsInStock, lang)} {isFa ? 'دستگاه' : 'Units'}
-              </p>
-              <p className="text-[11px] text-[#6E6E73] mt-1">
-                {isFa ? `در ${formatNumber(products.length, lang)} مدل کالا` : `Across ${products.length} SKUs`}
-              </p>
-            </div>
-
-            <div className="bg-[#F5F5F7] p-6 rounded-2xl border border-black/[0.05]">
-              <p className="text-xs text-[#6E6E73]">{isFa ? 'هشدار کسری موجودی (زیر ۴ عدد)' : 'Low Stock SKUs (<= 4)'}</p>
-              <p className="text-xl font-bold text-[#B91C1C] mt-2 tabular-nums">
-                {formatNumber(lowStockProducts.length, lang)} {isFa ? 'مدل' : 'SKUs'}
-              </p>
-              <p className="text-[11px] text-[#6E6E73] mt-1">
-                {lowStockProducts.map((p) => p.brand).join(' · ') || (isFa ? 'موجودی کامل' : 'All stocked')}
+              <p className="text-[#6E6E73]">
+                {isOwner
+                  ? isFa
+                    ? 'شما با نقش OWNER وارد شده‌اید و مجاز به ویرایش قیمت (تومان) و تعداد موجودی هر رنگ/حافظه هستید.'
+                    : 'Signed in as OWNER: authorized to update both variant prices (Toman) and stock counts.'
+                  : isFa
+                    ? 'شما با نقش STAFF وارد شده‌اید: فقط مجاز به بروزرسانی موجودی انبار هستید (تغییر قیمت در سرور مسدود است).'
+                    : 'Signed in as STAFF: authorized to update variant stock counts only (price updates are restricted on the server).'}
               </p>
             </div>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={isFa ? 'جستجوی نام مدل یا کد SKU...' : 'Filter by product name or SKU...'}
+              className="px-3.5 py-2 rounded-xl bg-white border border-black/15 text-xs text-[#1D1D1F] w-full sm:w-64"
+            />
           </div>
 
-          {/* Recent Orders & Inventory Snapshot */}
-          <div className="bg-white rounded-3xl border border-black/[0.07] p-6 space-y-4">
-            <h2 className="text-base font-bold text-[#1D1D1F]">
-              {isFa ? 'آخرین سفارش‌های ثبت‌شده مشتریان' : 'Latest Customer Orders'}
-            </h2>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-black/[0.08] text-[#6E6E73]">
-                    <th className="py-3 text-start">{isFa ? 'شماره سفارش' : 'Order #'}</th>
-                    <th className="py-3 text-start">{isFa ? 'مشتری' : 'Customer'}</th>
-                    <th className="py-3 text-start">{isFa ? 'تاریخ شمسی' : 'Jalali Date'}</th>
-                    <th className="py-3 text-start">{isFa ? 'درگاه پرداخت' : 'Gateway'}</th>
-                    <th className="py-3 text-end">{isFa ? 'مبلغ کل' : 'Total (Toman)'}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black/[0.05]">
-                  {orders.map((ord) => (
-                    <tr key={ord.id}>
-                      <td className="py-3 font-mono font-semibold text-[#1D1D1F]">{ord.orderNumber}</td>
-                      <td className="py-3 text-[#1D1D1F]">
-                        {ord.customerName} ({ord.city})
-                      </td>
-                      <td className="py-3 text-[#6E6E73]">{formatJalaliDate(ord.createdAtIso, lang)}</td>
-                      <td className="py-3 uppercase font-mono text-[#6E6E73]">{ord.paymentGateway}</td>
-                      <td className="py-3 text-end font-bold text-[#1D1D1F] tabular-nums">
-                        {formatToman(ord.payableToman, lang)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="space-y-6">
+            {filteredProducts.map((product) => (
+              <div
+                key={product.id}
+                className="bg-white rounded-2xl border border-black/[0.08] overflow-hidden shadow-2xs"
+              >
+                <div className="bg-[#F5F5F7] px-5 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b border-black/[0.06]">
+                  <div>
+                    <h2 className="text-sm font-bold text-[#1D1D1F]">
+                      {isFa ? product.nameFa : product.nameEn}
+                    </h2>
+                    <p className="text-[11px] text-[#6E6E73] font-mono">
+                      Product ID: {product.id} · Base SKU: {product.sku}
+                    </p>
+                  </div>
+                  <div className="text-xs text-[#515154]">
+                    {isFa
+                      ? `مجموع موجودی کل رنگ‌ها: ${formatNumber(product.stockCount, 'fa')} عدد`
+                      : `Total Stock Across Variants: ${product.stockCount}`}
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-start border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-black/[0.06] text-[#6E6E73]">
+                        <th className="py-3 px-4 font-semibold text-start">
+                          {isFa ? 'کد تنوع (SKU)' : 'Variant SKU'}
+                        </th>
+                        <th className="py-3 px-4 font-semibold text-start">
+                          {isFa ? 'رنگ و حافظه' : 'Color / Storage'}
+                        </th>
+                        <th className="py-3 px-4 font-semibold text-start">
+                          {isFa ? 'قیمت نقدی (تومان)' : 'Price (Toman)'}
+                        </th>
+                        <th className="py-3 px-4 font-semibold text-start">
+                          {isFa ? 'معادل ریالی' : 'Rial Equivalent'}
+                        </th>
+                        <th className="py-3 px-4 font-semibold text-start">
+                          {isFa ? 'موجودی انبار' : 'Stock Count'}
+                        </th>
+                        <th className="py-3 px-4 font-semibold text-end">
+                          {isFa ? 'عملیات' : 'Action'}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-black/[0.06]">
+                      {product.variants.map((variant) => {
+                        const edit = getVariantEdit(
+                          variant.id,
+                          variant.priceToman,
+                          variant.stockCount
+                        );
+                        const isSaving = savingVariantId === variant.id;
+                        const isSaved = savedVariantId === variant.id;
+
+                        return (
+                          <tr key={variant.id} data-testid={`variant-row-${variant.sku}`}>
+                            <td className="py-3 px-4 font-mono text-[11px] text-[#515154]">
+                              {variant.sku}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0"
+                                  style={{ backgroundColor: variant.colorHex }}
+                                />
+                                <span className="font-medium text-[#1D1D1F]">
+                                  {isFa ? variant.colorNameFa : variant.colorNameEn}
+                                </span>
+                                <span className="text-[11px] text-[#6E6E73]">
+                                  ({variant.storageLabel})
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={1000}
+                                  disabled={!isOwner}
+                                  data-testid={`price-input-${variant.sku}`}
+                                  aria-label={`Price Toman for ${variant.sku}`}
+                                  value={edit.priceToman}
+                                  onChange={(e) =>
+                                    handleEditChange(
+                                      variant.id,
+                                      variant.priceToman,
+                                      variant.stockCount,
+                                      'priceToman',
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-36 px-2.5 py-1.5 rounded-lg border border-black/15 text-xs tabular-nums bg-white disabled:bg-[#F5F5F7] disabled:text-[#86868B]"
+                                />
+                                {!isOwner && (
+                                  <Lock
+                                    className="w-3.5 h-3.5 text-[#86868B]"
+                                    aria-label="Owner only"
+                                  />
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-[#6E6E73] tabular-nums">
+                              {formatNumber(
+                                tomanToRial(Number(edit.priceToman) || 0),
+                                lang
+                              )}{' '}
+                              {isFa ? 'ریال' : 'IRR'}
+                            </td>
+                            <td className="py-3 px-4">
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                data-testid={`stock-input-${variant.sku}`}
+                                aria-label={`Stock count for ${variant.sku}`}
+                                value={edit.stockCount}
+                                onChange={(e) =>
+                                  handleEditChange(
+                                    variant.id,
+                                    variant.priceToman,
+                                    variant.stockCount,
+                                    'stockCount',
+                                    e.target.value
+                                  )
+                                }
+                                className="w-24 px-2.5 py-1.5 rounded-lg border border-black/15 text-xs tabular-nums bg-white"
+                              />
+                            </td>
+                            <td className="py-3 px-4 text-end">
+                              <button
+                                type="button"
+                                disabled={isSaving}
+                                data-testid={`save-variant-${variant.sku}`}
+                                onClick={() =>
+                                  handleSaveVariant(
+                                    variant.id,
+                                    variant.priceToman,
+                                    variant.stockCount
+                                  )
+                                }
+                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors ${
+                                  isSaved
+                                    ? 'bg-[#1D7D3F] text-white'
+                                    : 'bg-[#0066CC] hover:bg-[#0055B3] text-white disabled:opacity-50'
+                                }`}
+                              >
+                                {isSaved ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>{isFa ? 'ذخیره شد' : 'Saved'}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="w-3.5 h-3.5" />
+                                    <span>
+                                      {isSaving
+                                        ? isFa
+                                          ? 'در حال ثبت...'
+                                          : 'Saving...'
+                                        : isFa
+                                          ? 'ثبت در پایگاه داده'
+                                          : 'Save'}
+                                    </span>
+                                  </>
+                                )}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Tab 2: Full Product, Price & Stock CRUD */}
-      {activeTab === 'products' && (
-        <div className="space-y-8">
-          {/* Add New Product Form */}
-          <form
-            onSubmit={handleCreateProduct}
-            className="bg-[#F5F5F7] rounded-3xl p-6 border border-black/[0.06] space-y-4"
-          >
-            <h2 className="text-sm font-bold text-[#1D1D1F] flex items-center gap-2">
-              <Plus className="w-4 h-4 text-[#0066CC]" />
-              <span>{isFa ? 'افزودن محصول جدید به کاتالوگ پارس‌تک' : 'Add New Hardware SKU to Catalog'}</span>
+      {/* TAB 2: Sanitized Audit Logs */}
+      {activeTab === 'audit' && (
+        <div className="bg-white rounded-2xl border border-black/[0.08] overflow-hidden">
+          <div className="px-6 py-4 bg-[#F5F5F7] border-b border-black/[0.06]">
+            <h2 className="text-sm font-bold text-[#1D1D1F]">
+              {isFa
+                ? 'گزارش رویدادهای امنیتی و تغییرات مدیریتی (بدون رمز عبور یا توکن نشست)'
+                : 'Security Events & Administrative Audit Log (Sanitized)'}
             </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
-              <input
-                type="text"
-                required
-                aria-label={isFa ? 'نام فارسی محصول' : 'Persian Product Name'}
-                placeholder={isFa ? 'نام فارسی محصول' : 'Persian Name'}
-                value={newProd.nameFa}
-                onChange={(e) => setNewProd({ ...newProd, nameFa: e.target.value })}
-                className="lg:col-span-2 px-3 py-2.5 rounded-xl bg-white border border-black/10"
-              />
-              <input
-                type="text"
-                required
-                aria-label={isFa ? 'نام انگلیسی محصول' : 'English Product Name'}
-                placeholder="English Model Name"
-                value={newProd.nameEn}
-                onChange={(e) => setNewProd({ ...newProd, nameEn: e.target.value })}
-                className="px-3 py-2.5 rounded-xl bg-white border border-black/10"
-              />
-              <select
-                aria-label={isFa ? 'دسته‌بندی' : 'Category'}
-                value={newProd.category}
-                onChange={(e) => setNewProd({ ...newProd, category: e.target.value as Product['category'] })}
-                className="px-3 py-2.5 rounded-xl bg-white border border-black/10"
-              >
-                <option value="mobiles">{isFa ? 'موبایل' : 'Mobiles'}</option>
-                <option value="laptops">{isFa ? 'لپ‌تاپ' : 'Laptops'}</option>
-                <option value="consoles">{isFa ? 'کنسول بازی' : 'Game Consoles'}</option>
-                <option value="accessories">{isFa ? 'لوازم جانبی' : 'Accessories'}</option>
-              </select>
-              <input
-                type="number"
-                required
-                aria-label={isFa ? 'قیمت به تومان' : 'Price in Toman'}
-                placeholder={isFa ? 'قیمت (تومان)' : 'Price (Toman)'}
-                value={newProd.priceToman}
-                onChange={(e) => setNewProd({ ...newProd, priceToman: Number(e.target.value) })}
-                className="px-3 py-2.5 rounded-xl bg-white border border-black/10 tabular-nums"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2.5 rounded-xl bg-[#0066CC] hover:bg-[#0055B3] text-white font-semibold transition-colors"
-              >
-                {isFa ? 'ثبت محصول جدید' : 'Add Product'}
-              </button>
-            </div>
-          </form>
-
-          {/* Editable Product Inventory Table */}
-          <div className="bg-white rounded-3xl border border-black/[0.07] p-6 overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-start border-collapse text-xs">
               <thead>
-                <tr className="border-b border-black/[0.08] text-[#6E6E73]">
-                  <th className="py-3 text-start">{isFa ? 'کد کالا / نام محصول' : 'SKU / Product Name'}</th>
-                  <th className="py-3 text-start">{isFa ? 'برند' : 'Brand'}</th>
-                  <th className="py-3 text-start">{isFa ? 'قیمت روز (تومان)' : 'Live Price (Toman)'}</th>
-                  <th className="py-3 text-start">{isFa ? 'موجودی انبار' : 'Stock Count'}</th>
-                  <th className="py-3 text-end">{isFa ? 'عملیات' : 'Actions'}</th>
+                <tr className="border-b border-black/[0.06] text-[#6E6E73]">
+                  <th className="py-3 px-4 font-semibold text-start">{isFa ? 'زمان' : 'Timestamp'}</th>
+                  <th className="py-3 px-4 font-semibold text-start">{isFa ? 'عملیات' : 'Action'}</th>
+                  <th className="py-3 px-4 font-semibold text-start">{isFa ? 'کاربر' : 'Actor'}</th>
+                  <th className="py-3 px-4 font-semibold text-start">{isFa ? 'موجودیت' : 'Entity'}</th>
+                  <th className="py-3 px-4 font-semibold text-start">{isFa ? 'آدرس IP' : 'IP'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/[0.06]">
-                {products.map((prod) => {
-                  const canDelete = canPerformAdminAction(role, 'delete_product');
-                  return (
-                    <tr key={prod.id}>
-                      <td className="py-3.5 pe-4">
-                        <p className="font-semibold text-[#1D1D1F]">{isFa ? prod.nameFa : prod.nameEn}</p>
-                        <p className="text-[11px] font-mono text-[#6E6E73]">{prod.sku}</p>
-                      </td>
-                      <td className="py-3.5 text-[#1D1D1F] font-medium">{prod.brand}</td>
-                      <td className="py-3.5">
-                        <input
-                          type="number"
-                          aria-label={`Price for ${prod.sku}`}
-                          value={prod.priceToman}
-                          step={100000}
-                          onChange={(e) =>
-                            handleUpdateProductField(prod.id, 'priceToman', Number(e.target.value))
-                          }
-                          className="w-36 px-2.5 py-1.5 rounded-lg bg-[#F5F5F7] border border-black/10 font-mono tabular-nums"
-                        />
-                      </td>
-                      <td className="py-3.5">
-                        <input
-                          type="number"
-                          aria-label={`Stock for ${prod.sku}`}
-                          value={prod.stockCount}
-                          onChange={(e) =>
-                            handleUpdateProductField(prod.id, 'stockCount', Number(e.target.value))
-                          }
-                          className="w-20 px-2.5 py-1.5 rounded-lg bg-[#F5F5F7] border border-black/10 font-mono tabular-nums"
-                        />
-                      </td>
-                      <td className="py-3.5 text-end">
-                        <button
-                          type="button"
-                          disabled={!canDelete}
-                          title={
-                            canDelete
-                              ? isFa
-                                ? 'حذف محصول'
-                                : 'Delete SKU'
-                              : isFa
-                                ? 'فقط مدیر ارشد مجاز به حذف کالا است'
-                                : 'Only Store Owner can delete SKUs'
-                          }
-                          onClick={() => handleDeleteProduct(prod.id)}
-                          className={`p-2 rounded-lg transition-colors ${
-                            canDelete
-                              ? 'text-[#B91C1C] hover:bg-[#B91C1C]/10'
-                              : 'text-black/20 cursor-not-allowed'
-                          }`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {auditLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#6E6E73]">
+                      {log.createdAt.slice(0, 19).replace('T', ' ')}
+                    </td>
+                    <td className="py-3 px-4 font-mono font-semibold text-[#1D1D1F]">
+                      {log.action}
+                    </td>
+                    <td className="py-3 px-4 text-[#515154]">
+                      {log.actorEmail ? `${log.actorEmail} (${log.actorRole})` : '—'}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#515154]">
+                      {log.entityType} {log.entityId ? `(${log.entityId})` : ''}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#6E6E73]">
+                      {log.ipAddress || '—'}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* Tab 3: Order Management & Status Fulfillment */}
-      {activeTab === 'orders' && (
-        <div className="space-y-4">
-          {orders.map((order) => (
-            <div
-              key={order.id}
-              className="bg-white rounded-3xl p-6 border border-black/[0.07] flex flex-col lg:flex-row lg:items-center justify-between gap-6"
-            >
-              <div className="space-y-1.5 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-bold text-sm text-[#1D1D1F]">{order.orderNumber}</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-[#6E6E73]">{formatJalaliDate(order.createdAtIso, lang)}</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="font-mono text-[#0066CC]">{order.paymentRefId}</span>
-                </div>
-                <p className="font-semibold text-[#1D1D1F]">
-                  {order.customerName} — {order.customerMobile} ({order.city})
-                </p>
-                <p className="text-[#6E6E73]">{order.address}</p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3 shrink-0">
-                <div className="text-end me-2">
-                  <p className="text-xs text-[#6E6E73]">{isFa ? 'مبلغ فاکتور:' : 'Total:'}</p>
-                  <p className="text-sm font-bold text-[#1D1D1F] tabular-nums">
-                    {formatToman(order.payableToman, lang)}
-                  </p>
-                </div>
-
-                <select
-                  aria-label={`Order status for ${order.orderNumber}`}
-                  value={order.status}
-                  onChange={(e) => handleOrderStatusChange(order.id, e.target.value as OrderStatus)}
-                  className="px-3 py-2 rounded-xl bg-[#F5F5F7] border border-black/10 text-xs font-semibold text-[#1D1D1F]"
-                >
-                  <option value="pending_payment">{isFa ? 'در انتظار پرداخت' : 'Pending Payment'}</option>
-                  <option value="processing">{isFa ? 'در حال آماده‌سازی و همتا' : 'Processing & Hamta'}</option>
-                  <option value="shipped">{isFa ? 'تحویل به پیک / پست' : 'Shipped'}</option>
-                  <option value="delivered">{isFa ? 'تحویل شده' : 'Delivered'}</option>
-                  <option value="cancelled">{isFa ? 'لغو شده' : 'Cancelled'}</option>
-                </select>
-
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="px-3.5 py-2 rounded-xl bg-[#1D1D1F] text-white text-xs font-semibold flex items-center gap-1.5"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>{isFa ? 'چاپ لیبل پستی و فاکتور' : 'Print Label & Invoice'}</span>
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Tab 3.5: Customer Reviews Moderation & Display Approval Toggles */}
-      {activeTab === 'reviews' && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-4 bg-[#F5F5F7] p-5 rounded-2xl border border-black/[0.05]">
-            <div>
-              <h2 className="text-base font-bold text-[#1D1D1F]">
-                {isFa ? 'مدیریت و تایید نمایش دیدگاه‌های خریداران' : 'Customer Product Reviews Moderation'}
-              </h2>
-              <p className="text-xs text-[#6E6E73] mt-0.5">
-                {isFa
-                  ? 'دیدگاه‌های تاییدشده در صفحه جزئیات محصول به صورت عمومی نمایش داده می‌شوند.'
-                  : 'Toggle display approval to publish or unpublish customer reviews on the Product Detail Page.'}
-              </p>
-            </div>
-            <div className="flex items-center gap-4 text-xs">
-              <span className="font-semibold text-[#15803D]">
-                {isFa
-                  ? `تاییدشده: ${formatNumber(reviews.filter((r) => r.approved).length, 'fa')}`
-                  : `Approved: ${reviews.filter((r) => r.approved).length}`}
-              </span>
-              <span className="font-semibold text-[#B45309]">
-                {isFa
-                  ? `در انتظار تایید: ${formatNumber(reviews.filter((r) => !r.approved).length, 'fa')}`
-                  : `Pending Approval: ${reviews.filter((r) => !r.approved).length}`}
-              </span>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {reviews.map((rev) => {
-              const prod = products.find((p) => p.id === rev.productId);
-              return (
-                <div
-                  key={rev.id}
-                  className={`rounded-2xl p-5 border flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
-                    rev.approved
-                      ? 'bg-white border-black/[0.07]'
-                      : 'bg-[#FFFBEB] border-[#F59E0B]/40'
-                  }`}
-                >
-                  <div className="space-y-1.5 text-xs max-w-3xl">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold text-[#1D1D1F]">{rev.authorName}</span>
-                      <span aria-hidden="true" className="text-[#6E6E73]">·</span>
-                      <span className="text-[#0066CC] font-medium">
-                        {prod ? (isFa ? prod.nameFa : prod.nameEn) : rev.productId}
-                      </span>
-                      <span aria-hidden="true" className="text-[#6E6E73]">·</span>
-                      <span className="text-[#6E6E73]">{formatJalaliDate(rev.createdAtIso, lang)}</span>
-                      <span className="inline-flex items-center gap-0.5 text-[#1D1D1F] font-semibold ms-1 tabular-nums">
-                        <Star className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
-                        {formatNumber(rev.rating, lang)}/{formatNumber(5, lang)}
-                      </span>
-                    </div>
-                    <p className="text-[#1D1D1F] leading-relaxed">{rev.comment}</p>
-                  </div>
-
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    <button
-                      type="button"
-                      aria-pressed={rev.approved}
-                      onClick={() => {
-                        onToggleReviewApproval(rev.id, !rev.approved);
-                        triggerSavedFeedback(
-                          !rev.approved
-                            ? 'دیدگاه تایید شد و در صفحه محصول به نمایش درآمد.'
-                            : 'نمایش عمومی دیدگاه متوقف شد.',
-                          !rev.approved
-                            ? 'Review approved and published on PDP.'
-                            : 'Review hidden from public PDP.'
-                        );
-                      }}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                        rev.approved
-                          ? 'bg-[#15803D] text-white hover:bg-[#166534]'
-                          : 'bg-[#1D1D1F] text-white hover:bg-black/80'
-                      }`}
-                    >
-                      {rev.approved ? (
-                        <>
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>{isFa ? 'تاییدشده (نمایش فعال)' : 'Approved (Displayed)'}</span>
-                        </>
-                      ) : (
-                        <>
-                          <EyeOff className="w-3.5 h-3.5" />
-                          <span>{isFa ? 'در انتظار — تایید نمایش' : 'Pending — Approve Display'}</span>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      aria-label={isFa ? `حذف نظر ${rev.authorName}` : `Delete review by ${rev.authorName}`}
-                      onClick={() => {
-                        onDeleteReview(rev.id);
-                        triggerSavedFeedback('دیدگاه حذف شد.', 'Review deleted.');
-                      }}
-                      className="p-2 rounded-xl text-[#B91C1C] hover:bg-[#B91C1C]/10"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 4: Delivery Cost Rules & Shaparak Payment Gateways */}
-      {activeTab === 'settings' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Delivery Tariffs */}
-          <div className="lg:col-span-6 bg-[#F5F5F7] rounded-3xl p-6 space-y-4 border border-black/[0.05]">
+      {/* TAB 3: Change Password & Revoke Sessions */}
+      {activeTab === 'security' && (
+        <div className="max-w-lg bg-[#F5F5F7] rounded-3xl p-6 sm:p-8 border border-black/[0.06] space-y-5">
+          <div className="space-y-1">
             <h2 className="text-base font-bold text-[#1D1D1F]">
-              {isFa ? 'تعرفه و قوانین ارسال (تهران و شهرستان)' : 'Delivery & Courier Cost Rules'}
+              {isFa ? 'تغییر رمز عبور حساب مدیریتی' : 'Change Administrator Password'}
             </h2>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-[#6E6E73] mb-1">
-                  {isFa ? 'هزینه پایه پیک فوری تهران (تومان)' : 'Tehran Express Courier Base Cost (Toman)'}
-                </label>
-                <input
-                  type="number"
-                  value={deliverySettings.tehranPeykBaseToman}
-                  onChange={(e) =>
-                    onUpdateDeliverySettings({
-                      ...deliverySettings,
-                      tehranPeykBaseToman: Number(e.target.value),
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-black/10 tabular-nums"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[#6E6E73] mb-1">
-                  {isFa ? 'سقف ارسال رایگان در تهران (تومان)' : 'Tehran Free Delivery Threshold (Toman)'}
-                </label>
-                <input
-                  type="number"
-                  value={deliverySettings.tehranFreeThresholdToman}
-                  onChange={(e) =>
-                    onUpdateDeliverySettings({
-                      ...deliverySettings,
-                      tehranFreeThresholdToman: Number(e.target.value),
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-black/10 tabular-nums"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[#6E6E73] mb-1">
-                  {isFa ? 'هزینه پایه پست پیشتاز / تیپاکس شهرستان (تومان)' : 'Nationwide Pishtaz/Tipax Base (Toman)'}
-                </label>
-                <input
-                  type="number"
-                  value={deliverySettings.iranPostBaseToman}
-                  onChange={(e) =>
-                    onUpdateDeliverySettings({
-                      ...deliverySettings,
-                      iranPostBaseToman: Number(e.target.value),
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-black/10 tabular-nums"
-                />
-              </div>
-            </div>
+            <p className="text-xs text-[#6E6E73]">
+              {isFa
+                ? 'رمز عبور با الگوریتم Argon2id هش می‌شود و بلافاصله پس از تغییر، تمامی نشست‌های فعال قبلی در پایگاه داده باطل (Revoke) خواهند شد.'
+                : 'Passwords are hashed with Argon2id. Changing your password immediately revokes all active sessions.'}
+            </p>
           </div>
 
-          {/* Payment Gateways (Protected by RBAC Owner permission) */}
-          <div className="lg:col-span-6 bg-[#F5F5F7] rounded-3xl p-6 space-y-4 border border-black/[0.05]">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-[#1D1D1F]">
-                {isFa ? 'درگاه‌های پرداخت شاپرک و تسویه در محل' : 'Iranian Payment Gateways (Shaparak)'}
-              </h2>
-              {!canPerformAdminAction(role, 'manage_gateways') && (
-                <span className="text-[11px] text-[#B91C1C] flex items-center gap-1 font-medium">
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>{isFa ? 'قفل برای کارشناس فروش' : 'Owner Only'}</span>
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              {gateways.map((gw) => {
-                const allowed = canPerformAdminAction(role, 'manage_gateways');
-                return (
-                  <div
-                    key={gw.id}
-                    className="p-4 rounded-2xl bg-white border border-black/[0.06] flex items-center justify-between gap-4 text-xs"
-                  >
-                    <div className="space-y-1">
-                      <p className="font-bold text-[#1D1D1F]">{isFa ? gw.nameFa : gw.nameEn}</p>
-                      <p className="font-mono text-[11px] text-[#6E6E73]">Merchant: {gw.merchantCode}</p>
-                    </div>
-                    <label className="inline-flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        disabled={!allowed}
-                        checked={gw.enabled}
-                        onChange={(e) =>
-                          onUpdateGateways(
-                            gateways.map((item) =>
-                              item.id === gw.id ? { ...item, enabled: e.target.checked } : item
-                            )
-                          )
-                        }
-                        className="rounded text-[#0066CC]"
-                      />
-                      <span className="font-medium">{gw.enabled ? (isFa ? 'فعال' : 'Active') : isFa ? 'غیرفعال' : 'Off'}</span>
-                    </label>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 5: Content & Social Media Integration CMS */}
-      {activeTab === 'cms' && (
-        <div className="bg-[#F5F5F7] rounded-3xl p-6 border border-black/[0.05] space-y-5 text-xs">
-          <h2 className="text-base font-bold text-[#1D1D1F]">
-            {isFa
-              ? 'مدیریت بنر صفحه اصلی، آدرس مرکز موبایل شرق و شبکه‌های اجتماعی'
-              : 'Homepage Hero, Store Contact & Social Feed CMS'}
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[#6E6E73] mb-1">
-                {isFa ? 'تیتر اصلی صفحه اول (فارسی)' : 'Hero Headline (Persian)'}
+          <form onSubmit={handlePasswordChange} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-[#1D1D1F]">
+                {isFa ? 'رمز عبور فعلی' : 'Current Password'}
               </label>
               <input
-                type="text"
-                value={cms.heroTitleFa}
-                onChange={(e) => onUpdateCms({ ...cms, heroTitleFa: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/10"
+                type="password"
+                required
+                minLength={8}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/15 text-xs"
               />
             </div>
 
-            <div>
-              <label className="block text-[#6E6E73] mb-1">
-                {isFa ? 'تیتر اصلی صفحه اول (انگلیسی)' : 'Hero Headline (English)'}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-[#1D1D1F]">
+                {isFa ? 'رمز عبور جدید (حداقل ۱۲ کاراکتر)' : 'New Password (min 12 characters)'}
               </label>
               <input
-                type="text"
-                value={cms.heroTitleEn}
-                onChange={(e) => onUpdateCms({ ...cms, heroTitleEn: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/10"
+                type="password"
+                required
+                minLength={12}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/15 text-xs"
               />
             </div>
 
-            <div>
-              <label className="block text-[#6E6E73] mb-1">
-                {isFa ? 'لینک صفحه اینستاگرام' : 'Instagram Profile URL'}
-              </label>
-              <input
-                type="url"
-                dir="ltr"
-                value={cms.instagramUrl}
-                onChange={(e) => onUpdateCms({ ...cms, instagramUrl: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/10 font-mono"
-              />
-            </div>
+            {passwordStatus && (
+              <div
+                className={`p-3 rounded-xl text-xs font-medium ${
+                  passwordStatus.type === 'success'
+                    ? 'bg-[#EAFBF0] text-[#1D7D3F]'
+                    : 'bg-[#FEF2F2] text-[#991B1B]'
+                }`}
+              >
+                {passwordStatus.message}
+              </div>
+            )}
 
-            <div>
-              <label className="block text-[#6E6E73] mb-1">
-                {isFa ? 'کانال تلگرام قیمت روز' : 'Telegram Channel URL'}
-              </label>
-              <input
-                type="url"
-                dir="ltr"
-                value={cms.telegramUrl}
-                onChange={(e) => onUpdateCms({ ...cms, telegramUrl: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/10 font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[#6E6E73] mb-1">
-                {isFa ? 'شماره واتس‌اپ پشتیبانی فروش' : 'WhatsApp Support Number'}
-              </label>
-              <input
-                type="text"
-                dir="ltr"
-                value={cms.whatsappNumber}
-                onChange={(e) => onUpdateCms({ ...cms, whatsappNumber: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-black/10 font-mono"
-              />
-            </div>
-
-            <div className="flex items-center pt-5">
-              <label className="inline-flex items-center gap-2.5 font-semibold text-[#1D1D1F] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={cms.showInstagramWidget}
-                  onChange={(e) => onUpdateCms({ ...cms, showInstagramWidget: e.target.checked })}
-                  className="rounded text-[#0066CC]"
-                />
-                <span>
-                  {isFa
-                    ? 'نمایش ویجت فید اینستاگرام در صفحه اصلی فروشگاه'
-                    : 'Display Live Instagram Feed Widget on Storefront'}
-                </span>
-              </label>
-            </div>
-          </div>
+            <button
+              type="submit"
+              disabled={changingPassword}
+              className="w-full py-3 px-5 rounded-xl bg-[#1D1D1F] hover:bg-black/80 text-white text-xs font-semibold transition-colors"
+            >
+              {changingPassword
+                ? isFa
+                  ? 'در حال بروزرسانی...'
+                  : 'Updating...'
+                : isFa
+                  ? 'بروزرسانی رمز عبور و ابطال نشست‌ها'
+                  : 'Update Password & Revoke Sessions'}
+            </button>
+          </form>
         </div>
       )}
     </div>
